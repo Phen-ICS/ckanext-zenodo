@@ -60,12 +60,14 @@ security:bandit:
 
 test:pure-unit:
   stage: validate
+  variables:
+    # zenodo_client.py has no ckan import at all (see its own docstring),
+    # so the conftest.py guard requiring --ckan-ini=test.ini doesn't apply -
+    # same pattern as ckanext-citations' equivalent job.
+    ZENODO_ALLOW_NON_TEST_INI: "1"
   script:
-    # Stage 0 scaffold: no ckan-free pure-logic module exists yet
-    # (zenodo_client.py/metadata_mapper.py land in later stages, at which
-    # point this script becomes a real `pytest ...` invocation, same
-    # pattern as ckanext-citations' equivalent job).
-    - echo "Stage 0 scaffold: no pure-unit tests yet"
+    - pip install pytest==7.4.4 requests
+    - pytest ckanext/zenodo/tests/test_zenodo_client.py
 
 build:package:
   stage: build
