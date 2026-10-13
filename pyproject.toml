@@ -1,0 +1,48 @@
+[project]
+name = "ckanext-zenodo"
+version = "0.1.0"
+description = "Publishes large or non-tabular dataset files to Zenodo (sandbox or production) instead of CKAN storage, mapping FDF metadata into the Zenodo deposition."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+authors = [
+    { name = "ICS", email = "groupe-info-ics@igbmc.fr" }
+]
+keywords = ["CKAN", "data", "zenodo", "doi"]
+dependencies = [
+    "requests",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==7.4.4",
+    "pytest-cov==4.1.0",
+]
+
+[project.entry-points."ckan.plugins"]
+zenodo = "ckanext.zenodo.plugin:ZenodoPlugin"
+
+[build-system]
+requires = ["setuptools<77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+exclude = ["docs"]
+
+[tool.setuptools.package-data]
+"ckanext.zenodo.templates" = ["*", "**/*"]
+"ckanext.zenodo.migration" = ["*", "**/*"]
+"ckanext.zenodo.i18n" = ["*.pot", "**/*.po", "**/*.mo"]
+"ckanext.zenodo.tests" = ["test.ini"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+ignore = ["EXE001"]
+
+[tool.bandit]
+exclude_dirs = ["ckanext/zenodo/tests"]
