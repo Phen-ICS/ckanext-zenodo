@@ -22,6 +22,33 @@ storage when it's larger than `ckan.max_resource_size`, or its format isn't
 one `ckanext.xloader.formats` can read - or whenever the user explicitly
 asks for Zenodo regardless of size/format.
 
+## Relationship to ckanext-fair3r
+
+Not a declared package dependency (not in `pyproject.toml`), but FAIR3R is
+this plugin's reason to exist, at two different levels:
+
+- **Soft Python dependency** - `lib/publish_guard.py` imports
+  `ckanext.fair3r.lib.fdf.datacite_converter.DataCiteConverter` inside a
+  `try`/`except ImportError` to map a dataset's FDF metadata into the
+  Zenodo deposition's description/creators/keywords/etc. Same pattern
+  `ckanext-citations`' `helpers.py` already uses for
+  `completeness_for_package`. Without `ckanext-fair3r` installed (or on a
+  dataset with no `fdf_output_json` extra), a deposition still gets
+  published - just with minimal metadata (title and the submitting user's
+  name only), never a hard failure.
+- **Operational dependency, not a code one** - the actual trigger for
+  uploading to this plugin's `/zenodo/upload/<package>` endpoint lives
+  entirely in `ckanext-fair3r`'s own `resource-upload.js` (the
+  size/format routing decision and the "force Zenodo" checkbox). Without
+  `ckanext-fair3r` installed *and enabled*, nothing in the normal CKAN UI
+  ever calls this plugin's upload endpoint at all - it would need a
+  hand-crafted request. See the implementation plan's staged delivery
+  order for exactly where that wiring lands.
+
+In short: install this plugin on its own and it runs (migrations apply,
+the blueprint responds, tests pass), but it's only actually useful
+alongside a FAIR3R deployment that also runs `ckanext-fair3r`.
+
 ## Tests
 
 ```shell
