@@ -159,9 +159,53 @@ def _publish_deposition(package_id):
         )
         return
 
+    _accept_pending_community_inclusion(
+        result.get('record_id') or result.get('id'), token, sandbox, package_id
+    )
+
     ZenodoDepositionQuery.mark_published(
         package_id, result.get('id'), result.get('doi')
     )
     # Own RQ job, own transaction - nothing else commits this for us, same
     # reasoning as the upload blueprint's own repo.commit_and_remove().
     repo.commit_and_remove()
+
+
+def _accept_pending_community_inclusion(record_id, token, sandbox, package_id):
+    """Confirmed empirically against the real sandbox (Stage 8 smoke
+    test): publishing a deposition whose metadata names a community only
+    creates a pending "community-inclusion" request against the record -
+    it does NOT associate the record with the community by itself, even
+    for the account that owns that community. This accepts that one
+    request so the record actually ends up listed under the community,
+    matching what the plan's description always promised. Best-effort and
+    never fatal: the DOI is already minted by the time this runs, and a
+    missed/failed acceptance here just means the record is a (findable,
+    already-published) orphan with respect to the community until
+    accepted manually or on a later retry - not a reason to roll anything
+    back."""
+    if not record_id:
+        return
+    try:
+        requests_page = zenodo_client.list_record_requests(
+            record_id, token, sandbox=sandbox
+        )
+        pending = next(
+            (
+                r
+                for r in (requests_page or {}).get('hits', {}).get('hits', [])
+                if r.get('type') == 'community-inclusion' and r.get('is_open')
+            ),
+            None,
+        )
+        if pending is None:
+            return
+        zenodo_client.accept_request(pending['id'], token, sandbox=sandbox)
+    except zenodo_client.ZenodoError:
+        log.exception(
+            'publish_guard: failed to accept the pending community-inclusion '
+            'request for package %s (record %s) - record is published but '
+            'not yet listed under the community',
+            package_id,
+            record_id,
+        )

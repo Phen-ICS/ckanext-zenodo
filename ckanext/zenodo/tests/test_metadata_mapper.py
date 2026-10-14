@@ -204,7 +204,11 @@ def test_datacite_to_zenodo_omits_empty_optional_fields():
         access_right='restricted',
     )
 
-    assert 'creators' not in result
+    # creators is never omitted - Zenodo rejects *publishing* a deposition
+    # with none (confirmed against the real sandbox), so this falls back
+    # to the submitter rather than being left out like the other optional
+    # fields.
+    assert result['creators'] == [{'name': 'Jane Researcher'}]
     assert 'contributors' not in result
     assert 'keywords' not in result
     assert 'related_identifiers' not in result

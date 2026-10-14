@@ -201,13 +201,20 @@ def map_upload_type(types):
     )
 
 
-# Zenodo sanitizes the description field through its own allow-list, which
-# has changed across versions and isn't safe to assume from memory (see
-# the implementation plan). Build it from only the safest, smallest subset
-# - headings, bold, an unordered list, plain Unicode emoji as "icons"
-# instead of <img>/inline CSS - and confirm what actually survives against
-# the real sandbox during the manual smoke-test stage, adjusting this
-# function's allow-list then, not now.
+# Zenodo sanitizes the description field through its own allow-list on
+# write (not just on display) - confirmed empirically against the real
+# sandbox during the Stage 8 smoke test by round-tripping a probe
+# deposition through every tag this module might plausibly want and
+# reading back what the API actually stored:
+#   kept as-is: h1-h3, p, br, a[href] (but not [style]), span (tag kept,
+#     any style/class-less attrs stripped), div[class] (class attribute
+#     survives - unlike span's), ul/ol/li, table/tbody/tr/td, blockquote,
+#     code, pre, sub, sup, u, strong, b, em
+#   tag stripped, text content kept: script, s (strikethrough)
+#   stripped entirely (tag and content both gone): img, hr
+# Built from only the safest, smallest subset of the confirmed-safe list -
+# headings, bold, an unordered list, plain Unicode emoji as "icons" instead
+# of <img>/inline CSS, since the latter is confirmed stripped anyway.
 def build_zenodo_description_html(datacite_metadata, submitter_display_name):
     submitted_on_behalf_of = (
         '<p><strong>📤 Submitted via the FAIR3R shared account on behalf of:'
@@ -271,8 +278,15 @@ def datacite_to_zenodo(
     }
 
     creators = [map_creator(c) for c in datacite_metadata.get('creators') or []]
-    if creators:
-        metadata['creators'] = creators
+    # Confirmed empirically against the real sandbox (Stage 8 smoke test):
+    # Zenodo's PUT metadata accepts a deposition with no creators at all,
+    # but then rejects *publishing* it with a 400 ("Missing data for
+    # required field") - a dataset with no FDF creators (or fair3r not
+    # installed, see publish_guard.py's _extract_datacite_metadata) would
+    # otherwise fail to publish forever. Falls back to whoever is actually
+    # submitting, same reasoning as the "submitted on behalf of" line in
+    # the description above - there's always at least a name to put here.
+    metadata['creators'] = creators or [{'name': submitter_display_name}]
 
     contributors = [
         map_contributor(c) for c in datacite_metadata.get('contributors') or []
