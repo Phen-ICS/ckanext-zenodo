@@ -67,7 +67,7 @@ test:pure-unit:
     ZENODO_ALLOW_NON_TEST_INI: "1"
   script:
     - pip install pytest==7.4.4 requests
-    - pytest ckanext/zenodo/tests/test_zenodo_client.py
+    - pytest ckanext/zenodo/tests/test_zenodo_client.py ckanext/zenodo/tests/test_metadata_mapper.py
 
 build:package:
   stage: build
