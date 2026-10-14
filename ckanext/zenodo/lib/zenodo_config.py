@@ -75,3 +75,21 @@ def ckan_max_resource_size_bytes():
 
 def xloader_formats():
     return (toolkit.config.get('ckanext.xloader.formats') or '').split()
+
+
+def routing_config_dict():
+    """What the client-side shouldRouteToZenodo() (stage 3, landing for
+    real in ckanext-fair3r's resource-upload.js at stage 7) needs to
+    decide, without a network round trip, whether a given file belongs on
+    Zenodo. Deliberately a plain dict, not a registered CKAN template
+    helper: ckanext-fair3r's own base.html calls this via a direct,
+    try/except ImportError'd Python import instead (same pattern already
+    used for citations_completeness in ckanext-citations) rather than
+    `h.zenodo_routing_config_json()`, since CKAN has no
+    `h.helper_available(...)` to check for a *possibly-unloaded* other
+    plugin's helper before calling it from a template - see the
+    implementation plan's cross-extension notes."""
+    return {
+        'max_resource_size_bytes': ckan_max_resource_size_bytes(),
+        'xloader_formats': xloader_formats(),
+    }
