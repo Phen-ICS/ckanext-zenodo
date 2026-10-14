@@ -3,6 +3,7 @@ from ckan.plugins import toolkit
 
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
+from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 
 
 class ZenodoPlugin(plugins.SingletonPlugin):
@@ -11,12 +12,12 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     Zenodo deposition. See the project's implementation plan for the full
     staged design (Zenodo client, metadata mapper, deposition model,
     upload blueprint, draft->active publish hook, resource-upload.js
-    wiring) - the publish hook (IPackageController) lands in a later
-    stage.
+    wiring).
     """
 
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IBlueprint)
+    plugins.implements(plugins.IPackageController, inherit=True)
 
     # IConfigurer
 
@@ -31,3 +32,14 @@ class ZenodoPlugin(plugins.SingletonPlugin):
 
     def get_blueprint(self):
         return [zenodo_upload]
+
+    # IPackageController
+
+    def after_dataset_update(self, context, pkg_dict):
+        """Independent of ckanext-fair3r's own after_dataset_update
+        (draft_guard.py) - CKAN dispatches this hook to every plugin that
+        implements IPackageController, so there's no need (and it would
+        be the wrong ownership) to bolt this onto fair3r's hook. See the
+        implementation plan's reasoning for keeping these separate."""
+        maybe_publish_pending_deposition(pkg_dict)
+        return pkg_dict
