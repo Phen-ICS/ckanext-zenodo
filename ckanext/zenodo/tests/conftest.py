@@ -78,3 +78,19 @@ def pytest_sessionstart(session):
         'Run tests with --ckan-ini=/plugins/ckanext-zenodo/test.ini '
         '(or set ZENODO_ALLOW_NON_TEST_INI=1 to bypass intentionally).'
     )
+
+
+@pytest.fixture
+def zenodo_tables():
+    """Create this plugin's table in the test DB. The Alembic migration is
+    what creates it in a real environment; tests only need the schema, and
+    create_all(checkfirst=True) is idempotent."""
+    from ckan.model import meta
+
+    from ckanext.zenodo import model
+
+    meta.metadata.create_all(
+        bind=meta.engine,
+        tables=[model.zenodo_deposition_table],
+        checkfirst=True,
+    )
