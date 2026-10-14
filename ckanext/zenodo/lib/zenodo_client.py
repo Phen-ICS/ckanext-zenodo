@@ -134,3 +134,31 @@ def publish_deposition(deposition_id, access_token, sandbox=False):
     harmless no-op)."""
     url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/actions/publish'
     return _request('POST', url, access_token)
+
+
+# Confirmed empirically during the Stage 8 sandbox smoke test: on the real
+# (InvenioRDM-based) Zenodo, setting `metadata.communities` on a deposition
+# does NOT associate the published record with that community by itself -
+# it only creates a pending "community-inclusion" request against the
+# record, which sits unaccepted (metadata.communities comes back None on
+# the published record) until someone with curation rights on the
+# community explicitly accepts it - even when that someone is the same
+# shared account that owns the community. The two calls below close that
+# gap; see publish_guard.py's _accept_pending_community_inclusion for how
+# they're used together right after a successful publish.
+
+
+def list_record_requests(record_id, access_token, sandbox=False):
+    """Lists the requests (inclusion, access, ...) open against a
+    published record. Returns the raw search-result dict
+    ({'hits': {'hits': [...]}, ...})."""
+    url = f'{base_url(sandbox)}/records/{record_id}/requests'
+    return _request('GET', url, access_token)
+
+
+def accept_request(request_id, access_token, sandbox=False):
+    """Accepts a pending request (e.g. a community-inclusion request) by
+    id - the acting account must have curation rights on whatever the
+    request targets (a community, here)."""
+    url = f'{base_url(sandbox)}/requests/{request_id}/actions/accept'
+    return _request('POST', url, access_token, json={})

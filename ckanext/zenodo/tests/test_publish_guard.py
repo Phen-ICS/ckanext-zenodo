@@ -163,6 +163,9 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
         'publish_deposition',
         lambda *a, **k: {'id': 'rec-1', 'doi': '10.5281/zenodo.1'},
     )
+    monkeypatch.setattr(
+        zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
+    )
 
     publish_guard._publish_deposition(dataset['id'])
 
@@ -208,6 +211,73 @@ def test_publish_deposition_is_a_noop_when_already_published(monkeypatch):
 
 def test_publish_deposition_handles_missing_package():
     publish_guard._publish_deposition('does-not-exist')
+
+
+def test_accept_pending_community_inclusion_accepts_the_open_request(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        zenodo_client,
+        'list_record_requests',
+        lambda *a, **k: {
+            'hits': {
+                'hits': [
+                    {'id': 'other-req', 'type': 'access', 'is_open': True},
+                    {
+                        'id': 'req-1',
+                        'type': 'community-inclusion',
+                        'is_open': True,
+                    },
+                ]
+            }
+        },
+    )
+    monkeypatch.setattr(
+        zenodo_client,
+        'accept_request',
+        lambda request_id, *a, **k: calls.append(request_id),
+    )
+
+    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+
+    assert calls == ['req-1']
+
+
+def test_accept_pending_community_inclusion_noop_when_none_open(monkeypatch):
+    monkeypatch.setattr(
+        zenodo_client,
+        'list_record_requests',
+        lambda *a, **k: {'hits': {'hits': []}},
+    )
+    calls = []
+    monkeypatch.setattr(
+        zenodo_client, 'accept_request', lambda *a, **k: calls.append(1)
+    )
+
+    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+
+    assert calls == []
+
+
+def test_accept_pending_community_inclusion_noop_without_record_id(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        zenodo_client, 'list_record_requests', lambda *a, **k: calls.append(1)
+    )
+
+    publish_guard._accept_pending_community_inclusion(None, 'tok', True, 'pkg-1')
+
+    assert calls == []
+
+
+def test_accept_pending_community_inclusion_swallows_zenodo_error(monkeypatch):
+    def failing_list(*a, **k):
+        raise zenodo_client.ZenodoError('boom')
+
+    monkeypatch.setattr(zenodo_client, 'list_record_requests', failing_list)
+
+    # Must not raise - a failure here never rolls back the already-minted
+    # DOI/publish.
+    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
     # No exception raised - that's the whole assertion.
 
 

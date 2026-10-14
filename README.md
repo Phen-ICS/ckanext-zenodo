@@ -49,6 +49,33 @@ In short: install this plugin on its own and it runs (migrations apply,
 the blueprint responds, tests pass), but it's only actually useful
 alongside a FAIR3R deployment that also runs `ckanext-fair3r`.
 
+## Sandbox smoke test findings (Stage 8)
+
+Confirmed empirically against the real `sandbox.zenodo.org` (the current,
+InvenioRDM-based Zenodo) - two things the implementation plan flagged as
+unverified assumptions, now settled:
+
+- **`metadata.creators` is required to publish**, even though updating a
+  deposition's metadata without it is accepted - omitting it makes
+  `publish_deposition` fail every time with a 400. `metadata_mapper.py`'s
+  `datacite_to_zenodo` now always sets `creators`, falling back to the
+  submitter's name when the DataCite metadata has none (e.g. no
+  `ckanext-fair3r`, or no FDF metadata yet).
+- **Setting `metadata.communities` does not associate the record with
+  that community by itself** - it only opens a pending
+  `community-inclusion` request against the record, which stays
+  unaccepted (and invisible under the community) until explicitly
+  accepted, even for the account that owns the community. `publish_guard.py`
+  now does this automatically right after a successful publish
+  (`_accept_pending_community_inclusion`) - best-effort: a failure here
+  is logged but never undoes the publish (the DOI is already minted by
+  that point).
+- The description HTML sanitizer runs **on write**, not just on display,
+  and its real allow-list is now documented directly above
+  `build_zenodo_description_html` in `metadata_mapper.py` (confirmed by
+  round-tripping a probe deposition through every plausible tag and
+  reading back what Zenodo actually stored).
+
 ## Tests
 
 ```shell

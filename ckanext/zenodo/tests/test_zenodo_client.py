@@ -208,3 +208,38 @@ def test_upload_file_to_bucket_strips_trailing_slash(monkeypatch):
     assert captured['url'] == 'https://example.test/bucket/data.csv'
     assert captured['data'] is fake_file
     assert captured['timeout'] == zenodo_client.UPLOAD_TIMEOUT
+
+
+def test_list_record_requests_hits_records_requests_endpoint(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: (
+            captured.update(method=method, url=url) or {'hits': {'hits': []}}
+        ),
+    )
+
+    result = zenodo_client.list_record_requests(42, 'tok', sandbox=True)
+
+    assert captured['method'] == 'GET'
+    assert captured['url'].endswith('/records/42/requests')
+    assert result == {'hits': {'hits': []}}
+
+
+def test_accept_request_hits_accept_action(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: (
+            captured.update(method=method, url=url, **k) or {'status': 'accepted'}
+        ),
+    )
+
+    result = zenodo_client.accept_request('req-id', 'tok', sandbox=True)
+
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/requests/req-id/actions/accept')
+    assert captured['json'] == {}
+    assert result == {'status': 'accepted'}
