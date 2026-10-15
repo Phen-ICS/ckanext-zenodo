@@ -7,11 +7,23 @@ inventing their own defaults."""
 from ckan.plugins import toolkit
 
 DEFAULT_MAX_UPLOADS_PER_HOUR = 20
-# Generous on purpose - Zenodo's own per-file limit is the real ceiling,
-# this is just a sanity cap against a single user exhausting the shared
-# account's quota, not a routing threshold (that's ckan.max_resource_size).
-DEFAULT_MAX_BYTES_PER_HOUR = 5 * 1024**3  # 5 GB
-DEFAULT_MAX_FILE_SIZE_BYTES = 50 * 1024**3  # 50 GB, Zenodo's own limit
+# Not Zenodo's own 50 GB per-file limit - matches nginx's own
+# client_max_body_size for /zenodo/upload/ (see nginx/setup/default.conf
+# and deploy/nginx_{production,validation,integration}.conf in
+# fair3r-docker-alt) and the server's realistic local disk headroom: the
+# browser upload transits through this server first (Werkzeug spools the
+# whole incoming file to a local temp file before this plugin's blueprint
+# ever sees it - there's no way to avoid that and still keep the shared
+# Zenodo account's token off the browser), so a file this plugin accepts
+# briefly needs about its own size in free disk space here too, not just
+# on Zenodo. Raise both together, never just one.
+DEFAULT_MAX_FILE_SIZE_BYTES = 10 * 1024**3  # 10 GB
+# Comfortably above DEFAULT_MAX_FILE_SIZE_BYTES - a single legitimate
+# large upload must never exceed its own hourly budget on the first
+# try. Still a real ceiling against a shared account's quota being
+# exhausted by repeated large uploads, not a routing threshold (that's
+# ckan.max_resource_size).
+DEFAULT_MAX_BYTES_PER_HOUR = 20 * 1024**3  # 20 GB
 DEFAULT_COMMUNITY_IDENTIFIER = 'fair3r'
 
 
