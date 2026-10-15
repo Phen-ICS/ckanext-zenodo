@@ -16,6 +16,13 @@
   normal "delete resource" button instead - see
   lib/delete_zenodo_file.py's own docstring) - these are the user's own
   files, theirs to remove while there's still time.
+
+  Rendered inside the same <ul class="resource-list"> CKAN itself uses
+  (see super(), core's package/snippets/resources_list.html) - each
+  pending file is its own <li class="resource-item">, same shape as a
+  real one (resource_item.html's own .heading + .description), so these
+  don't look like a bespoke, differently-sized panel bolted on next to
+  the real resource list.
 #}
 {% ckan_extends %}
 
@@ -24,96 +31,45 @@
   {% if zenodo_pending %}
     {% set zenodo_can_edit = h.check_access('package_update', {'id': pkg.id}) %}
     {% if zenodo_pending.waiting_for_public %}
-      {% set zenodo_message = _("This dataset's file has been uploaded to Zenodo, but won't be archived with a public DOI until this dataset itself is made public.") %}
+      {% set zenodo_message = _("Uploaded to Zenodo - won't be archived with a public DOI until this dataset itself is made public.") %}
     {% else %}
-      {% set zenodo_message = _("This dataset's file is being archived on Zenodo - reload this page in a moment to see it.") %}
+      {% set zenodo_message = _('Being archived on Zenodo - reload this page in a moment to see it.') %}
     {% endif %}
     <style>
-      .zenodo-pending-notice {
-        margin-bottom: 12px;
-        padding: 10px 14px;
-        border: 1px solid #cfe3ea;
-        border-radius: 4px;
-        background: #f3f9fb;
-        color: #205b73;
-        font-size: 13px;
+      .zenodo-pending-item .heading {
+        color: inherit;
+        cursor: default;
       }
-      .zenodo-pending-notice-text {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .zenodo-pending-files {
-        margin: 6px 0 0;
-        padding-left: 0;
-        list-style: none;
-        font-size: 12px;
-        color: #44707f;
-      }
-      .zenodo-pending-files li {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 2px 0;
-      }
-      .zenodo-pending-files li span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      .zenodo-pending-item .description {
+        color: var(--fair3r-color-muted, #6c6c6c);
       }
       .zenodo-remove-file {
-        flex: 0 0 auto;
-        border: none;
-        background: none;
-        color: #a33;
-        cursor: pointer;
-        font-size: 12px;
-        padding: 0 2px;
-      }
-      .zenodo-remove-file:hover {
-        text-decoration: underline;
-      }
-      .zenodo-remove-file:disabled {
-        color: #999;
-        cursor: default;
-        text-decoration: none;
+        margin-top: 4px;
       }
     </style>
-    <div class="zenodo-pending-notice">
-      {# title= gives the full text as a native hover tooltip - the
-         sibling rule can truncate it with an ellipsis on a narrow
-         page, and a cut-off sentence would otherwise have no way to
-         be read in full. #}
-      <div class="zenodo-pending-notice-text" title="{{ zenodo_message }}">
-        {{ zenodo_message }}
-      </div>
-      {% if zenodo_pending.filenames %}
-        <ul class="zenodo-pending-files" data-zenodo-package="{{ pkg.name }}">
-          {% for filename in zenodo_pending.filenames %}
-            <li>
-              <span title="{{ filename }}">{{ filename }}</span>
-              {% if zenodo_can_edit %}
-                <button
-                  type="button"
-                  class="zenodo-remove-file"
-                  data-filename="{{ filename }}"
-                  title="{{ _('Remove this file from Zenodo') }}"
-                >{{ _('Remove') }}</button>
-              {% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-    </div>
+    <ul class="resource-list">
+      {% for filename in zenodo_pending.filenames %}
+        <li class="resource-item zenodo-pending-item">
+          <span class="heading" title="{{ filename }}">{{ filename }}</span>
+          <p class="description">{{ zenodo_message }}</p>
+          {% if zenodo_can_edit %}
+            <button
+              type="button"
+              class="btn btn-danger btn-sm zenodo-remove-file"
+              data-filename="{{ filename }}"
+            >{{ _('Remove') }}</button>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
     {% if zenodo_can_edit and zenodo_pending.filenames %}
       <script>
         document.addEventListener("DOMContentLoaded", function () {
-          var $list = $(".zenodo-pending-files");
-          if (!$list.length) {
+          var $buttons = $(".zenodo-remove-file");
+          if (!$buttons.length) {
             return;
           }
-          var packageName = $list.data("zenodo-package");
+          var packageName = {{ pkg.name | tojson }};
 
           function csrfFieldName() {
             return $('meta[name="csrf_field_name"]').attr("content") || null;
@@ -123,7 +79,7 @@
             return fieldName ? $('meta[name="' + fieldName + '"]').attr("content") : null;
           }
 
-          $list.on("click", ".zenodo-remove-file", function () {
+          $(document).on("click", ".zenodo-remove-file", function () {
             var $button = $(this);
             var filename = $button.data("filename");
             if (!window.confirm("{{ _('Remove') }} " + filename + "?")) {
@@ -143,7 +99,9 @@
             }
             xhr.onload = function () {
               if (xhr.status >= 200 && xhr.status < 300) {
-                $button.closest("li").remove();
+                var $item = $button.closest("li");
+                var $list = $item.closest("ul");
+                $item.remove();
                 if (!$list.find("li").length) {
                   window.location.reload();
                 }

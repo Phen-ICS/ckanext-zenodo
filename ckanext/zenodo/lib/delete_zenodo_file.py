@@ -25,18 +25,20 @@ with a flag:
   that hook, same reasoning as publish_guard.py's own deferred publish
   job.
 
-**Known limitation, deliberately not auto-handled**: Zenodo rejects
-publishing a version with zero files (confirmed empirically:
+**Known limitation, prevented rather than auto-handled**: Zenodo
+rejects publishing a version with zero files (confirmed empirically:
 "Missing uploaded files... mark it as metadata-only") - deleting the
-*last* remaining file of an already-published deposition will fail to
-produce a new Zenodo version. The CKAN resource is still removed by
-that point (CKAN's own resource_delete already ran, in
-before_resource_delete, before this job gets a chance to object), so
-Data and Resources can end up listing fewer files than the last
-published Zenodo version actually still has, until this is resolved
-some other way (e.g. deciding that record should become metadata-only,
-or deleting the whole dataset's Zenodo association) - not silently
-decided here.
+*last* remaining file of an already-published deposition would fail
+to produce a new Zenodo version, silently (by the time the deferred
+job runs and fails, CKAN's own resource_delete has already removed the
+resource - there's no request/response left to show anything in).
+lib/auth.py's own resource_delete override denies this specific case
+up front instead, with a clear reason, so the inconsistency this
+module's own fallback branch below logs about should no longer happen
+in practice - that branch stays as a defensive no-op path (e.g. a
+sysadmin bypassing auth, or a race between two concurrent deletes) in
+case something gets past that check some other way, not because this
+is still expected to happen in normal use.
 """
 
 import logging
