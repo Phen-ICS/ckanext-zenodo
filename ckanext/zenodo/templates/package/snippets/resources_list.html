@@ -1,18 +1,26 @@
 {#
   Covers only the transient gap between a file reaching Zenodo (upload is
-  synchronous) and the real CKAN Link resource existing for it (created
-  by publish_guard.py's deferred RQ job, on the dataset's draft -> active
-  transition) - without it, someone landing on the dataset page in that
-  window sees CKAN's own plain "This dataset has no data" right after
-  successfully uploading, which reads as a failure rather than "still in
-  progress". Once the job runs, h.zenodo_pending_deposition_for_package()
-  stops returning anything (a real resource exists for it by then), so
-  this never duplicates or outlives the real resource.
+  synchronous) and the real CKAN Link resources existing for it (created
+  by publish_guard.py's deferred RQ job, only enqueued once the dataset
+  is active AND public) - without it, someone landing on the dataset
+  page in that window sees CKAN's own plain "This dataset has no data"
+  right after successfully uploading, which reads as a failure rather
+  than "still in progress" (or, for a private dataset, as if the upload
+  silently vanished - it's just not getting a public Zenodo record yet,
+  on purpose). Once the job runs, h.zenodo_pending_deposition_for_package()
+  stops returning anything (real resources exist for it by then), so
+  this never duplicates or outlives them.
 #}
 {% ckan_extends %}
 
 {% block resource_list %}
-  {% if h.zenodo_pending_deposition_for_package(pkg.id) %}
+  {% set zenodo_pending = h.zenodo_pending_deposition_for_package(pkg) %}
+  {% if zenodo_pending %}
+    {% if zenodo_pending.waiting_for_public %}
+      {% set zenodo_message = _("This dataset's file has been uploaded to Zenodo, but won't be archived with a public DOI until this dataset itself is made public.") %}
+    {% else %}
+      {% set zenodo_message = _("This dataset's file is being archived on Zenodo - reload this page in a moment to see it.") %}
+    {% endif %}
     <style>
       .zenodo-pending-notice {
         margin-bottom: 12px;
@@ -22,10 +30,17 @@
         background: #f3f9fb;
         color: #205b73;
         font-size: 13px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
     </style>
-    <div class="zenodo-pending-notice">
-      {{ _("This dataset's file is being archived on Zenodo - reload this page in a moment to see it.") }}
+    {# title= gives the full text as a native hover tooltip - the
+       rule above can truncate it with an ellipsis on a narrow page,
+       and a cut-off sentence would otherwise have no way to be read
+       in full. #}
+    <div class="zenodo-pending-notice" title="{{ zenodo_message }}">
+      {{ zenodo_message }}
     </div>
   {% endif %}
   {{ super() }}
