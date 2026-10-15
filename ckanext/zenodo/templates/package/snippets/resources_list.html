@@ -27,6 +27,17 @@
 {% ckan_extends %}
 
 {% block resource_list %}
+  {% set zenodo_notice = h.zenodo_notice_for_package(pkg) %}
+  {% if zenodo_notice %}
+    {# Same classes core's own page.html uses to render a real
+       flash_success() - this isn't one (see
+       lib/helpers.py's zenodo_notice_for_package for why a deferred
+       job can't use the real thing), styled identically so it doesn't
+       look like a second, different kind of message. #}
+    <div class="alert alert-dismissible fade show alert-success">
+      {{ zenodo_notice.message }}
+    </div>
+  {% endif %}
   {% set zenodo_pending = h.zenodo_pending_deposition_for_package(pkg) %}
   {% if zenodo_pending %}
     {% set zenodo_can_edit = h.check_access('package_update', {'id': pkg.id}) %}

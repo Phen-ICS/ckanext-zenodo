@@ -5,7 +5,10 @@ from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
 from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_auth
 from ckanext.zenodo.lib.delete_zenodo_file import maybe_delete_published_file
-from ckanext.zenodo.lib.helpers import zenodo_pending_deposition_for_package
+from ckanext.zenodo.lib.helpers import (
+    zenodo_notice_for_package,
+    zenodo_pending_deposition_for_package,
+)
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 
 
@@ -48,7 +51,8 @@ class ZenodoPlugin(plugins.SingletonPlugin):
 
     def get_helpers(self):
         return {
-            'zenodo_pending_deposition_for_package': zenodo_pending_deposition_for_package
+            'zenodo_pending_deposition_for_package': zenodo_pending_deposition_for_package,
+            'zenodo_notice_for_package': zenodo_notice_for_package,
         }
 
     # IPackageController

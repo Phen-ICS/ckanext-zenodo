@@ -196,6 +196,10 @@ def _delete_published_file(package_id, filename):
         zenodo_record_id=record_id,
         zenodo_record_doi=result.get('doi'),
     )
+    # Same DB-backed "flash, but surviving past this request" as
+    # publish_guard.py's own - see lib/helpers.py's
+    # zenodo_notice_for_package.
+    ZenodoDepositionQuery.set_notice(package_id, 'new_version_published')
     # Own RQ job, own transaction - same reasoning as publish_guard.py's
     # own repo.commit_and_remove().
     repo.commit_and_remove()

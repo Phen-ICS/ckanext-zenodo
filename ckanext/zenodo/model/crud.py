@@ -162,6 +162,27 @@ class ZenodoDepositionQuery:
         return cls.update_package(package_id, **kwargs)
 
     @classmethod
+    def set_notice(cls, package_id, notice):
+        """Sets the one-shot notice a deferred job wants shown on the
+        dataset page's next render (see lib/helpers.py's
+        zenodo_notice_for_package) - a plain string, this table's own
+        business, not a DB column enum, so new notice kinds don't need
+        a migration."""
+        return cls.update_package(package_id, pending_notice=notice)
+
+    @classmethod
+    def pop_notice(cls, package_id):
+        """Reads the pending notice and clears it in the same call, so
+        it only ever shows once - returns None if there wasn't one (the
+        common case)."""
+        record = cls.read_package(package_id)
+        if record is None or not record.pending_notice:
+            return None
+        notice = record.pending_notice
+        cls.update_package(package_id, pending_notice=None)
+        return notice
+
+    @classmethod
     def delete_package(cls, package_id):
         """Delete the deposition record for a dataset. Returns True if a
         record was deleted, False if there wasn't one."""

@@ -200,6 +200,12 @@ def _publish_deposition(package_id):
         result.get('doi'),
         concept_record_id=concept_record_id,
     )
+    # A real flash_success() has nothing to attach to by now (this is a
+    # deferred job, not the request that enqueued it) - see
+    # lib/helpers.py's zenodo_notice_for_package for the DB-backed
+    # equivalent this sets instead, shown once on the dataset page's
+    # next render.
+    ZenodoDepositionQuery.set_notice(package_id, 'published')
     # Own RQ job, own transaction - nothing else commits this for us, same
     # reasoning as the upload blueprint's own repo.commit_and_remove().
     # resource_create above already committed itself (CKAN actions always

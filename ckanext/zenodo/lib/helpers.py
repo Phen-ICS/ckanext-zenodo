@@ -23,7 +23,41 @@ so there is nothing left to show here and no risk of it ever
 duplicating the real resources.
 """
 
+from ckan.plugins import toolkit
+
 from ckanext.zenodo.model import ZenodoDepositionQuery
+
+# Keyed by the short code ZenodoDepositionQuery.set_notice() stores (see
+# publish_guard.py/delete_zenodo_file.py's own call sites) - a plain string
+# column, not a DB enum, so a new notice kind only needs an entry here, no
+# migration.
+_NOTICE_MESSAGES = {
+    'published': toolkit._('Archived on Zenodo'),
+    'new_version_published': toolkit._('Zenodo archive updated'),
+}
+
+
+def zenodo_notice_for_package(pkg_dict):
+    """A one-shot "flash message, but surviving past this request" -
+    see ZenodoDepositionQuery.set_notice's own docstring for why a real
+    flash_success() (session-based, same request only - see
+    ckanext-doi's own synchronous equivalent) can't be used for
+    something a deferred RQ job wants to announce. Returns None (the
+    common case) if there's nothing to show; otherwise a dict
+    {'message': ...} and clears it, so it only ever shows once."""
+    package_id = pkg_dict.get('id')
+    if not package_id:
+        return None
+
+    notice = ZenodoDepositionQuery.pop_notice(package_id)
+    if notice is None:
+        return None
+
+    message = _NOTICE_MESSAGES.get(notice, notice)
+    deposition = ZenodoDepositionQuery.read_package(package_id)
+    if deposition and deposition.zenodo_record_doi:
+        message = f'{message} (DOI: {deposition.zenodo_record_doi})'
+    return {'message': f'{message}.'}
 
 
 def zenodo_pending_deposition_for_package(pkg_dict):

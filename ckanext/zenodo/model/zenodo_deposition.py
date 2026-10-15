@@ -54,6 +54,15 @@ zenodo_deposition_table = Table(
     # avoids re-sending identical metadata if the publish hook fires more
     # than once for the same draft->active transition.
     Column('last_metadata_hash', types.UnicodeText, nullable=True),
+    # A one-shot "flash message, but surviving past this request" - set
+    # by the deferred publish/delete jobs right when they succeed (see
+    # lib/helpers.py's zenodo_notice_for_package), since by the time
+    # they run, the request that triggered them is long gone and a real
+    # flash_success() (session-based, same request only - see
+    # ckanext-doi's own synchronous equivalent) has nothing to attach
+    # to. Read-and-cleared the next time the dataset page renders, so
+    # it shows exactly once, whenever that next render happens to be.
+    Column('pending_notice', types.UnicodeText, nullable=True),
     Column('created', types.DateTime, nullable=False, default=_utcnow),
     Column(
         'updated', types.DateTime, nullable=False, default=_utcnow, onupdate=_utcnow

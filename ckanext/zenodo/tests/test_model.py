@@ -118,6 +118,30 @@ def test_mark_published():
     assert published.zenodo_record_doi == '10.5281/zenodo.1'
 
 
+def test_set_and_pop_notice():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    ZenodoDepositionQuery.set_notice(dataset['id'], 'published')
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) == 'published'
+    # Only shows once - a second pop finds nothing left.
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) is None
+
+
+def test_pop_notice_without_one_set_is_none():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) is None
+
+
+def test_pop_notice_without_a_deposition_is_none():
+    dataset = factories.Dataset()
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) is None
+
+
 def test_delete_package():
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')

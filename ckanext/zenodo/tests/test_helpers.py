@@ -4,7 +4,10 @@
 import pytest
 from ckan.tests import factories
 
-from ckanext.zenodo.lib.helpers import zenodo_pending_deposition_for_package
+from ckanext.zenodo.lib.helpers import (
+    zenodo_notice_for_package,
+    zenodo_pending_deposition_for_package,
+)
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
 pytestmark = pytest.mark.usefixtures('clean_db', 'zenodo_tables')
@@ -61,3 +64,34 @@ def test_published_deposition_is_no_longer_pending():
     ZenodoDepositionQuery.mark_published(dataset['id'], 'rec-1', '10.5281/zenodo.1')
 
     assert zenodo_pending_deposition_for_package(dataset) is None
+
+
+def test_notice_for_package_none_by_default():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    assert zenodo_notice_for_package(dataset) is None
+
+
+def test_notice_for_package_published_includes_the_doi():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.mark_published(dataset['id'], 'rec-1', '10.5281/zenodo.1')
+    ZenodoDepositionQuery.set_notice(dataset['id'], 'published')
+
+    result = zenodo_notice_for_package(dataset)
+
+    assert result == {'message': 'Archived on Zenodo (DOI: 10.5281/zenodo.1).'}
+    # Shows only once - a second render finds nothing left to show.
+    assert zenodo_notice_for_package(dataset) is None
+
+
+def test_notice_for_package_new_version_published():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.mark_published(dataset['id'], 'rec-2', '10.5281/zenodo.2')
+    ZenodoDepositionQuery.set_notice(dataset['id'], 'new_version_published')
+
+    result = zenodo_notice_for_package(dataset)
+
+    assert result == {'message': 'Zenodo archive updated (DOI: 10.5281/zenodo.2).'}
