@@ -30,10 +30,26 @@ log = logging.getLogger(__name__)
 def maybe_publish_pending_deposition(pkg_dict):
     """Call from IPackageController.after_dataset_update. Cheap no-op for
     every normal update; only acts when there's genuinely a pending
-    deposition to publish."""
+    deposition to publish.
+
+    Same trigger condition as ckanext-doi's own after_dataset_update
+    (active AND not private, not just active) - minting a DOI, on
+    Zenodo same as on DataCite, is a one-way action, so a dataset that's
+    active but still private should never get one yet. Firing on every
+    update (not just the draft->active transition) is what this
+    requires: a dataset created active+private and made public only
+    later gets published the next time it's updated (even just
+    toggling that flag), not just once right after creation - exactly
+    mirroring ckanext-doi's own behaviour, and incidentally also what
+    keeps access_right (see publish_guard._publish_deposition) from
+    ever going stale: by the time this runs, the dataset is always
+    already public, so it's always 'open', never a 'restricted' record
+    that CKAN later forgot to reconcile."""
     if pkg_dict.get('type', 'dataset') != 'dataset':
         return
     if pkg_dict.get('state') != 'active':
+        return
+    if pkg_dict.get('private', False):
         return
 
     package_id = pkg_dict.get('id')
@@ -138,6 +154,10 @@ def _publish_deposition(package_id):
         title=pkg_dict.get('title') or pkg_dict.get('name'),
         submitter_display_name=_submitter_display_name(pkg_dict),
         community_identifier=zenodo_config.community_identifier(),
+        # maybe_publish_pending_deposition now only enqueues this job
+        # once the dataset is active AND public, so this is always
+        # 'open' in practice by the time it runs - kept explicit (not
+        # hardcoded) in case this is ever called some other way.
         access_right='restricted' if pkg_dict.get('private') else 'open',
         tags=pkg_dict.get('tags'),
         license_id=pkg_dict.get('license_id'),

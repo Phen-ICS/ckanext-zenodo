@@ -24,8 +24,8 @@ def enqueued(monkeypatch):
     return calls
 
 
-def _pkg_dict(package_id, state='active', type_='dataset'):
-    return {'id': package_id, 'type': type_, 'state': state}
+def _pkg_dict(package_id, state='active', type_='dataset', private=False):
+    return {'id': package_id, 'type': type_, 'state': state, 'private': private}
 
 
 def test_non_dataset_type_is_ignored(enqueued):
@@ -73,6 +73,43 @@ def test_empty_deposition_is_never_published(enqueued):
     publish_guard.maybe_publish_pending_deposition(_pkg_dict(dataset['id']))
 
     assert enqueued == []
+
+
+def test_private_active_dataset_is_not_published_yet(enqueued):
+    # Same trigger condition as ckanext-doi's own after_dataset_update:
+    # active AND not private, not just active - a DOI (Zenodo's same as
+    # DataCite's) is a one-way action, so a dataset that's active but
+    # still private should never get one yet.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    publish_guard.maybe_publish_pending_deposition(
+        _pkg_dict(dataset['id'], private=True)
+    )
+
+    assert enqueued == []
+
+
+def test_dataset_made_public_later_gets_published_then(enqueued):
+    # The hook fires on every update, not just draft -> active - a
+    # dataset created active+private and made public only later must
+    # still get published the next time it's updated, not be stuck
+    # forever just because the publish job never ran right after
+    # creation.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    publish_guard.maybe_publish_pending_deposition(
+        _pkg_dict(dataset['id'], private=True)
+    )
+    assert enqueued == []
+
+    publish_guard.maybe_publish_pending_deposition(
+        _pkg_dict(dataset['id'], private=False)
+    )
+    assert len(enqueued) == 1
 
 
 def test_pending_deposition_with_files_is_enqueued(enqueued):
