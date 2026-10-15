@@ -58,24 +58,44 @@ def test_map_contributor_missing_type_falls_back_to_other():
     assert mm.map_contributor({'name': 'Smith, John'})['type'] == 'Other'
 
 
-def test_map_keywords_recognized_scheme_is_annotated():
-    subjects = [{'subject': 'Mus musculus', 'subjectScheme': 'NCBITaxon'}]
+def test_map_keywords_passes_through_ckan_tag_names():
+    tags = [{'name': 'genomics'}, {'name': 'mouse-model'}]
 
-    assert mm.map_keywords(subjects) == ['Mus musculus (NCBITaxon)']
-
-
-def test_map_keywords_unrecognized_scheme_stays_plain():
-    subjects = [{'subject': 'Gene: Apoe', 'subjectScheme': 'SomeOtherScheme'}]
-
-    assert mm.map_keywords(subjects) == ['Gene: Apoe']
+    assert mm.map_keywords(tags) == ['genomics', 'mouse-model']
 
 
-def test_map_keywords_no_scheme_stays_plain():
-    assert mm.map_keywords([{'subject': 'free text'}]) == ['free text']
+def test_map_keywords_skips_blank_tags():
+    assert mm.map_keywords([{'name': '  '}, {'name': 'ok'}]) == ['ok']
 
 
-def test_map_keywords_skips_blank_subjects():
-    assert mm.map_keywords([{'subject': '  '}, {'subject': 'ok'}]) == ['ok']
+def test_map_keywords_handles_no_tags():
+    assert mm.map_keywords(None) == []
+    assert mm.map_keywords([]) == []
+
+
+def test_subject_label_known_scheme():
+    assert mm._subject_label('NCBITaxon') == 'Organism'
+    assert mm._subject_label('PATO') == 'Sex'
+    assert mm._subject_label('speciesBackground') == 'Strain'
+    assert mm._subject_label('alleleSymbol') == 'Allele'
+    assert mm._subject_label('geneChromosomeLocation') == 'Chromosome location'
+    assert mm._subject_label('geneMutationType') == 'Mutation type'
+    assert mm._subject_label('DOID') == 'Disease model'
+    assert mm._subject_label('UBERON') == 'Tissue / organ'
+    assert mm._subject_label('EFO') == 'Diet'
+
+
+def test_subject_label_unknown_scheme_is_humanized():
+    # The FDF form is driven by a dynamic JSON schema - a scheme this
+    # pipeline has never seen must still become a readable label, not a
+    # plain unlabeled keyword (that bucket is reserved for CKAN tags).
+    assert mm._subject_label('treatmentDuration') == 'Treatment Duration'
+    assert mm._subject_label('someNewField') == 'Some New Field'
+
+
+def test_subject_label_no_scheme_falls_back_to_other():
+    assert mm._subject_label(None) == 'Other'
+    assert mm._subject_label('') == 'Other'
 
 
 def test_map_related_identifiers_known_relation():
@@ -152,7 +172,7 @@ def test_build_description_html_avoids_disallowed_tags():
     assert '2026' in html
 
 
-def test_build_description_html_labels_organism_sex_and_strain():
+def test_build_description_html_labels_organism_sex_strain_and_mutation():
     # Confirmed against a real gene/allele FDF dataset's fdf_output_json.
     datacite_metadata = {
         'subjects': [
@@ -168,9 +188,21 @@ def test_build_description_html_labels_organism_sex_and_strain():
     assert '<strong>Organism:</strong> Mus musculus' in html
     assert '<strong>Sex:</strong> Female' in html
     assert '<strong>Strain:</strong> C57BL/6NJ' in html
-    # Unrecognized/unlabeled schemes (allele/mutation details etc.) still
-    # fall back to a plain keyword, same as before this change.
-    assert '<li>This is a mutation.</li>' in html
+    assert '<strong>Mutation type:</strong> This is a mutation.' in html
+
+
+def test_build_description_html_labels_unknown_scheme_via_fallback():
+    # The FDF form is driven by a dynamic JSON schema - a scheme this
+    # pipeline has never seen must still become a labeled pair, never a
+    # plain unlabeled keyword (see test_subject_label_unknown_scheme_is_humanized).
+    datacite_metadata = {
+        'subjects': [{'subject': '5 days', 'subjectScheme': 'treatmentDuration'}],
+    }
+
+    html = mm.build_zenodo_description_html(datacite_metadata, 'Jane Researcher')
+
+    assert '<strong>Treatment Duration:</strong> 5 days' in html
+    assert 'Keywords' not in html
 
 
 def test_build_description_html_dedupes_repeated_keywords():
@@ -214,6 +246,25 @@ def test_build_description_html_labels_gene_from_any_cross_reference():
     assert 'Keywords' not in html
 
 
+def test_build_description_html_keywords_section_comes_from_ckan_tags():
+    # Not from subjects - those are the labeled pairs above. Passing no
+    # tags at all means no Keywords section, even with subjects present.
+    datacite_metadata = {
+        'subjects': [{'subject': 'Mus musculus', 'subjectScheme': 'NCBITaxon'}],
+    }
+
+    without_tags = mm.build_zenodo_description_html(
+        datacite_metadata, 'Jane Researcher'
+    )
+    assert 'Keywords' not in without_tags
+
+    with_tags = mm.build_zenodo_description_html(
+        datacite_metadata, 'Jane Researcher', tags=[{'name': 'genomics'}]
+    )
+    assert '<strong>🏷️ Keywords:</strong>' in with_tags
+    assert '<li>genomics</li>' in with_tags
+
+
 def test_datacite_to_zenodo_end_to_end():
     datacite_metadata = {
         'creators': [
@@ -242,6 +293,7 @@ def test_datacite_to_zenodo_end_to_end():
         submitter_display_name='Jane Researcher',
         community_identifier='fair3r',
         access_right='open',
+        tags=[{'name': 'genomics'}],
         license_id='cc-by-4.0',
     )
 
@@ -254,7 +306,11 @@ def test_datacite_to_zenodo_end_to_end():
         {'name': 'Smith, John', 'orcid': '0000-0001-2345-6789'}
     ]
     assert result['contributors'] == [{'name': 'Doe, Jane', 'type': 'DataCurator'}]
-    assert result['keywords'] == ['Mus musculus (NCBITaxon)']
+    # From the dataset's own CKAN tags, not the NCBITaxon subject above -
+    # that one shows up as an "Organism:" labeled pair in the description
+    # instead (see test_build_description_html_labels_organism_sex_strain_and_mutation).
+    assert result['keywords'] == ['genomics']
+    assert '<strong>Organism:</strong> Mus musculus' in result['description']
     assert result['related_identifiers'] == [
         {'relation': 'references', 'identifier': '10.1234/example'}
     ]

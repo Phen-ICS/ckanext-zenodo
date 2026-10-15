@@ -139,6 +139,7 @@ def _publish_deposition(package_id):
         submitter_display_name=_submitter_display_name(pkg_dict),
         community_identifier=zenodo_config.community_identifier(),
         access_right='restricted' if pkg_dict.get('private') else 'open',
+        tags=pkg_dict.get('tags'),
         license_id=pkg_dict.get('license_id'),
     )
 
