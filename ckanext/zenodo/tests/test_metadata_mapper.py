@@ -159,7 +159,7 @@ def test_build_description_html_labels_organism_sex_and_strain():
             {'subject': 'Mus musculus', 'subjectScheme': 'NCBITaxon'},
             {'subject': 'Female', 'subjectScheme': 'PATO'},
             {'subject': 'C57BL/6NJ', 'subjectScheme': 'speciesBackground'},
-            {'subject': 'Apoe', 'subjectScheme': 'geneAccessionId'},
+            {'subject': 'This is a mutation.', 'subjectScheme': 'geneMutationType'},
         ],
     }
 
@@ -168,14 +168,17 @@ def test_build_description_html_labels_organism_sex_and_strain():
     assert '<strong>Organism:</strong> Mus musculus' in html
     assert '<strong>Sex:</strong> Female' in html
     assert '<strong>Strain:</strong> C57BL/6NJ' in html
-    # Unrecognized/unlabeled schemes (gene cross-references etc.) still
+    # Unrecognized/unlabeled schemes (allele/mutation details etc.) still
     # fall back to a plain keyword, same as before this change.
-    assert '<li>Apoe</li>' in html
+    assert '<li>This is a mutation.</li>' in html
 
 
 def test_build_description_html_dedupes_repeated_keywords():
     # A gene cross-referenced across several databases legitimately has
-    # one subjects entry per database, all sharing the same plain text.
+    # one subjects entry per database, all sharing the same plain text -
+    # and, since geneAccessionId/"NCBI Gene"/"MGI Gene" all map to the
+    # same "Gene" label, this also exercises the labeled side's dedup,
+    # not just the plain-keywords one.
     datacite_metadata = {
         'subjects': [
             {'subject': 'Apoe', 'subjectScheme': 'geneAccessionId'},
@@ -190,6 +193,25 @@ def test_build_description_html_dedupes_repeated_keywords():
 
     assert html.count('Apoe') == 1
     assert html.count('Mus musculus') == 1
+    assert '<strong>Gene:</strong> Apoe' in html
+
+
+def test_build_description_html_labels_gene_from_any_cross_reference():
+    datacite_metadata = {
+        'subjects': [
+            {'subject': 'Apoe', 'subjectScheme': 'geneSymbol'},
+            {'subject': 'Apoe', 'subjectScheme': 'geneAccessionId'},
+            {'subject': 'Apoe', 'subjectScheme': 'NCBI Gene'},
+            {'subject': 'Apoe', 'subjectScheme': 'MGI Gene'},
+            {'subject': 'Apoe', 'subjectScheme': 'Ensembl Gene'},
+        ],
+    }
+
+    html = mm.build_zenodo_description_html(datacite_metadata, 'Jane Researcher')
+
+    assert html.count('Apoe') == 1
+    assert '<strong>Gene:</strong> Apoe' in html
+    assert 'Keywords' not in html
 
 
 def test_datacite_to_zenodo_end_to_end():

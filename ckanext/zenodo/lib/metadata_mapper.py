@@ -109,6 +109,17 @@ SUBJECT_SCHEME_TO_LABEL = {
     'PATO': 'Sex',
     'speciesBackground': 'Strain',
     'Strain': 'Strain',
+    # All of these identify the same gene, just via different databases
+    # (datacite_converter.py emits one subjects entry per database that
+    # resolved it) - mapping them all to the same "Gene" label lets
+    # _split_labeled_subjects' existing (label, text) dedup collapse
+    # e.g. 5 "Apoe" entries into a single "Gene: Apoe" line, same as it
+    # already does for a single scheme repeated.
+    'geneSymbol': 'Gene',
+    'geneAccessionId': 'Gene',
+    'NCBI Gene': 'Gene',
+    'MGI Gene': 'Gene',
+    'Ensembl Gene': 'Gene',
 }
 
 _ORCID_SCHEME = 'ORCID'
