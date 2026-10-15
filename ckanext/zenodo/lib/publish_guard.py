@@ -222,13 +222,34 @@ def _create_zenodo_resources(pkg_dict, record_id, doi, sandbox, files):
     if sandbox:
         description += ' Sandbox record - not a permanent archive.'
 
+    # resource_create -> package_update fires CKAN's activity-tracking
+    # signal (ckanext.activity.subscriptions), which needs context['user']
+    # to resolve to a *real* user - ignore_auth alone only skips the
+    # permission check, it doesn't give the activity subscriber anyone to
+    # attribute the change to. Confirmed empirically: omitting this raised
+    # ValidationError({'user_id': ['User not found']}) from deep inside
+    # resource_create, from this RQ job (no web request => no "current
+    # user" at all) - the standard fix for a background job that needs to
+    # act as *someone* is CKAN's own site user, same as e.g. search
+    # reindexing jobs use.
+    try:
+        site_user = toolkit.get_action('get_site_user')({'ignore_auth': True}, {})
+    except Exception:
+        log.exception(
+            'publish_guard: failed to resolve the site user for package %s '
+            '(record %s) - skipping Zenodo Link resource creation',
+            pkg_dict.get('id'),
+            record_id,
+        )
+        return
+
     for file_entry in files:
         filename = (file_entry.get('filename') or '').strip()
         if not filename or filename in existing_names:
             continue
         try:
             toolkit.get_action('resource_create')(
-                {'ignore_auth': True},
+                {'ignore_auth': True, 'user': site_user['name']},
                 {
                     'package_id': pkg_dict['id'],
                     'url': record_url,

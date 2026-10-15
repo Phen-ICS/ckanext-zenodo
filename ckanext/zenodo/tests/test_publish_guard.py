@@ -253,6 +253,47 @@ def test_create_zenodo_resources_one_per_file():
     )
 
 
+def test_create_zenodo_resources_acts_as_the_site_user(monkeypatch):
+    # Regression test: resource_create -> package_update fires CKAN's
+    # activity-tracking signal, which needs context['user'] to resolve to
+    # a *real* user - plain ignore_auth alone raised
+    # ValidationError({'user_id': ['User not found']}) from deep inside
+    # resource_create when this ran as an RQ job (no web request, no
+    # "current user" at all), confirmed against the real DEV container.
+    # Checked here by intercepting resource_create's own context rather
+    # than round-tripping through the activity table - this test
+    # environment's `activity` table schema is missing a column core
+    # CKAN's current Activity model expects (a pre-existing, unrelated
+    # test-DB migration gap), so querying it directly isn't reliable here.
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    site_user = toolkit.get_action('get_site_user')({'ignore_auth': True}, {})
+
+    real_get_action = toolkit.get_action
+    captured = {}
+
+    def spying_get_action(name):
+        action = real_get_action(name)
+        if name != 'resource_create':
+            return action
+
+        def _spy(context, data_dict, **kw):
+            captured['user'] = context.get('user')
+            return action(context, data_dict, **kw)
+
+        return _spy
+
+    monkeypatch.setattr(publish_guard.toolkit, 'get_action', spying_get_action)
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, [{'filename': 'photo.jpg'}]
+    )
+
+    assert captured.get('user') == site_user['name']
+
+
 def test_create_zenodo_resources_idempotent_by_name():
     dataset = factories.Dataset()
     pkg_dict = toolkit.get_action('package_show')(
