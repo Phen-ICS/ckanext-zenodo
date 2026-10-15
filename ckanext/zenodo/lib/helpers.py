@@ -29,9 +29,11 @@ from ckanext.zenodo.model import ZenodoDepositionQuery
 def zenodo_pending_deposition_for_package(pkg_dict):
     """Returns None if there's nothing pending (no deposition, no files
     yet, or already published - a real resource exists for it by then).
-    Otherwise a dict {'waiting_for_public': bool} - the template picks
-    the right message from that, see its own comment for why these two
-    cases need different wording."""
+    Otherwise a dict {'waiting_for_public': bool, 'filenames': [...]} -
+    the template picks the right message from the former, and lists the
+    latter (the real files already on Zenodo, read back from the local
+    row rather than a live Zenodo API call on every page render - see
+    ZenodoDepositionQuery.add_file, called by the upload blueprint)."""
     package_id = pkg_dict.get('id')
     if not package_id:
         return None
@@ -42,4 +44,7 @@ def zenodo_pending_deposition_for_package(pkg_dict):
     if deposition.file_count <= 0:
         return None
 
-    return {'waiting_for_public': bool(pkg_dict.get('private'))}
+    return {
+        'waiting_for_public': bool(pkg_dict.get('private')),
+        'filenames': ZenodoDepositionQuery.list_filenames(package_id),
+    }

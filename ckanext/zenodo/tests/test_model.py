@@ -72,6 +72,39 @@ def test_increment_file_count_on_missing_deposition_returns_none():
     assert ZenodoDepositionQuery.increment_file_count(dataset['id']) is None
 
 
+def test_add_file_records_filename_and_increments_count():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    updated = ZenodoDepositionQuery.add_file(dataset['id'], 'notes.txt')
+
+    assert updated.file_count == 2
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == [
+        'photo.jpg',
+        'notes.txt',
+    ]
+
+
+def test_add_file_on_missing_deposition_returns_none():
+    dataset = factories.Dataset()
+
+    assert ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg') is None
+
+
+def test_list_filenames_defaults_to_empty():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == []
+
+
+def test_list_filenames_without_a_deposition_is_empty():
+    dataset = factories.Dataset()
+
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == []
+
+
 def test_mark_published():
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')

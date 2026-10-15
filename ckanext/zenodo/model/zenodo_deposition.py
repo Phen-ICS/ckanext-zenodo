@@ -35,6 +35,12 @@ zenodo_deposition_table = Table(
     Column('is_sandbox', Boolean, nullable=False, default=True),
     Column('published', Boolean, nullable=False, default=False),
     Column('file_count', Integer, nullable=False, default=0),
+    # JSON-encoded list of strings, not a native array/JSON column type -
+    # kept deliberately simple (a display convenience, never queried
+    # into), so the dataset page can list the real filenames already on
+    # Zenodo without a live API call on every render (see
+    # lib/helpers.py's zenodo_pending_deposition_for_package).
+    Column('filenames', types.UnicodeText, nullable=False, default='[]'),
     # Hash of the metadata dict last PUT to Zenodo for this deposition -
     # avoids re-sending identical metadata if the publish hook fires more
     # than once for the same draft->active transition.

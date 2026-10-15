@@ -28,10 +28,11 @@ def test_deposition_with_no_files_yet_is_not_pending():
 def test_unpublished_deposition_on_a_public_dataset_is_waiting_on_the_job():
     dataset = factories.Dataset(private=False)
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
 
     assert zenodo_pending_deposition_for_package(dataset) == {
-        'waiting_for_public': False
+        'waiting_for_public': False,
+        'filenames': ['photo.jpg'],
     }
 
 
@@ -42,10 +43,12 @@ def test_unpublished_deposition_on_a_private_dataset_is_waiting_on_visibility():
     org = factories.Organization()
     dataset = factories.Dataset(private=True, owner_org=org['id'])
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'notes.txt')
 
     assert zenodo_pending_deposition_for_package(dataset) == {
-        'waiting_for_public': True
+        'waiting_for_public': True,
+        'filenames': ['photo.jpg', 'notes.txt'],
     }
 
 
@@ -54,7 +57,7 @@ def test_published_deposition_is_no_longer_pending():
     # notice too would be a confusing duplicate, not just unnecessary.
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
     ZenodoDepositionQuery.mark_published(dataset['id'], 'rec-1', '10.5281/zenodo.1')
 
     assert zenodo_pending_deposition_for_package(dataset) is None

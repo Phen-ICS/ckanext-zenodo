@@ -4,6 +4,7 @@ shape). Session.get(Model, pk) rather than the legacy Query.get() - same
 SQLAlchemy-2.0-clean style ckanext-citations' model layer already uses.
 """
 
+import json
 from typing import ClassVar
 
 from ckan.model import Session
@@ -88,6 +89,40 @@ class ZenodoDepositionQuery:
         if record is None:
             return None
         return cls.update_package(package_id, file_count=record.file_count + 1)
+
+    @classmethod
+    def add_file(cls, package_id, filename):
+        """Records a real uploaded filename, in addition to incrementing
+        file_count - what the upload blueprint actually calls (rather
+        than increment_file_count alone) so the dataset page can list
+        real filenames while the deposition is still unpublished (see
+        lib/helpers.py's zenodo_pending_deposition_for_package)."""
+        record = cls.read_package(package_id)
+        if record is None:
+            return None
+        try:
+            filenames = json.loads(record.filenames or '[]')
+        except ValueError:
+            filenames = []
+        filenames.append(filename)
+        return cls.update_package(
+            package_id,
+            file_count=record.file_count + 1,
+            filenames=json.dumps(filenames),
+        )
+
+    @classmethod
+    def list_filenames(cls, package_id):
+        """The real filenames recorded so far for this dataset's
+        deposition, or [] if there's no deposition (or nothing uploaded
+        to it) at all."""
+        record = cls.read_package(package_id)
+        if record is None:
+            return []
+        try:
+            return json.loads(record.filenames or '[]')
+        except ValueError:
+            return []
 
     @classmethod
     def mark_published(cls, package_id, zenodo_record_id, zenodo_record_doi):

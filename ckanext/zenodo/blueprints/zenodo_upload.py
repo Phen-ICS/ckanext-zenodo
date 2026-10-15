@@ -140,7 +140,7 @@ def upload(package_name):
         )
         return _error('Upload to Zenodo failed - try again shortly', 502)
 
-    ZenodoDepositionQuery.increment_file_count(pkg_dict['id'])
+    ZenodoDepositionQuery.add_file(pkg_dict['id'], uploaded.filename)
     # This is a raw Flask view, not a CKAN action - nothing else commits
     # for us (a CKAN action like package_create/resource_create commits
     # internally as part of its own implementation; ZenodoDepositionQuery

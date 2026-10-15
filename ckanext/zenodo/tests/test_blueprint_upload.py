@@ -181,6 +181,7 @@ def test_second_upload_reuses_existing_open_deposition(app, fake_zenodo):
     )
     record = ZenodoDepositionQuery.read_package(dataset['id'])
     assert record.file_count == 2
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['a.zip', 'b.zip']
 
 
 @pytest.mark.ckan_config('ckanext.zenodo.max_uploads_per_hour', '2')

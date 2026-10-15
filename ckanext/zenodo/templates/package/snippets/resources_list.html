@@ -30,17 +30,34 @@
         background: #f3f9fb;
         color: #205b73;
         font-size: 13px;
+      }
+      .zenodo-pending-notice-text {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .zenodo-pending-files {
+        margin: 6px 0 0;
+        padding-left: 18px;
+        font-size: 12px;
+        color: #44707f;
+      }
     </style>
-    {# title= gives the full text as a native hover tooltip - the
-       rule above can truncate it with an ellipsis on a narrow page,
-       and a cut-off sentence would otherwise have no way to be read
-       in full. #}
-    <div class="zenodo-pending-notice" title="{{ zenodo_message }}">
-      {{ zenodo_message }}
+    <div class="zenodo-pending-notice">
+      {# title= gives the full text as a native hover tooltip - the
+         sibling rule can truncate it with an ellipsis on a narrow
+         page, and a cut-off sentence would otherwise have no way to
+         be read in full. #}
+      <div class="zenodo-pending-notice-text" title="{{ zenodo_message }}">
+        {{ zenodo_message }}
+      </div>
+      {% if zenodo_pending.filenames %}
+        <ul class="zenodo-pending-files">
+          {% for filename in zenodo_pending.filenames %}
+            <li title="{{ filename }}">{{ filename }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
     </div>
   {% endif %}
   {{ super() }}
