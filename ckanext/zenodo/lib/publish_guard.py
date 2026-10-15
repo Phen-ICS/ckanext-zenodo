@@ -162,7 +162,9 @@ def _publish_deposition(package_id):
 
     record_id = result.get('record_id') or result.get('id')
     _accept_pending_community_inclusion(record_id, token, sandbox, package_id)
-    _create_zenodo_resource(pkg_dict, record_id, result.get('doi'), sandbox)
+    _create_zenodo_resources(
+        pkg_dict, record_id, result.get('doi'), sandbox, result.get('files')
+    )
 
     ZenodoDepositionQuery.mark_published(
         package_id, result.get('id'), result.get('doi')
@@ -179,52 +181,70 @@ def _zenodo_record_url(record_id, sandbox):
     return f'https://{host}/records/{record_id}'
 
 
-def _create_zenodo_resource(pkg_dict, record_id, doi, sandbox):
-    """Creates a genuine CKAN Link resource pointing at the published
-    Zenodo record - confirmed, via actual testing, to be a better fit
-    than a bespoke display-only panel outside the resource list: a real
+def _create_zenodo_resources(pkg_dict, record_id, doi, sandbox, files):
+    """Creates one genuine CKAN Link resource per file actually uploaded
+    to Zenodo - confirmed, via actual testing, to be a better fit than a
+    bespoke display-only panel outside the resource list: a real
     resource shows up in the normal "Data and Resources" list with no
     template override needed, and - more importantly - is picked up by
     every feature that already iterates pkg.resources (DCAT/schema.org/
     Croissant export), which a panel bolted on elsewhere never would be.
 
-    Idempotent by URL rather than a new DB column: if a resource pointing
-    at this exact record already exists (e.g. this job was retried after
-    a crash right after this step, on a previous run), nothing new is
-    created. Never fatal - the DOI is already minted by the time this
-    runs; a failure here just means the record stays correctly published
-    on Zenodo without (yet) a CKAN-side resource for it."""
-    if record_id is None:
+    One resource per file (not one generic "Archived on Zenodo" entry
+    for the whole deposition) so each shows its own real filename in
+    "Data and Resources" - a dataset can have several files in the same
+    Zenodo deposition (see get_or_create_open_deposition), and they all
+    share the same `url` (the record's landing page - Zenodo doesn't
+    expose a stable direct-file URL before publish, and the landing page
+    already lists every file with its own download link anyway).
+    `files` is the `files` list a publish_deposition()/get_deposition()
+    response already carries ({filename, filesize, checksum, ...} per
+    file) - no separate API call or local bookkeeping needed for this.
+
+    Idempotent by (name, url) rather than a new DB column: if a resource
+    for this exact filename+record already exists (e.g. this job was
+    retried after a crash right after this step, on a previous run),
+    nothing new is created for it. Never fatal - the DOI is already
+    minted by the time this runs; a failure here just means the record
+    stays correctly published on Zenodo without (yet) a CKAN-side
+    resource for some or all of its files."""
+    if record_id is None or not files:
         return
 
     record_url = _zenodo_record_url(record_id, sandbox)
-    if any(r.get('url') == record_url for r in pkg_dict.get('resources') or []):
-        return
+    existing_names = {
+        r.get('name')
+        for r in pkg_dict.get('resources') or []
+        if r.get('url') == record_url
+    }
 
-    description = (
-        f'Data archived on Zenodo (DOI: {doi}).' if doi else 'Data archived on Zenodo.'
-    )
+    description = f'Archived on Zenodo (DOI: {doi}).' if doi else 'Archived on Zenodo.'
     if sandbox:
         description += ' Sandbox record - not a permanent archive.'
 
-    try:
-        toolkit.get_action('resource_create')(
-            {'ignore_auth': True},
-            {
-                'package_id': pkg_dict['id'],
-                'url': record_url,
-                'name': 'Archived on Zenodo',
-                'description': description,
-            },
-        )
-    except Exception:
-        log.exception(
-            'publish_guard: failed to create the Zenodo Link resource for '
-            'package %s (record %s) - the deposition is published, just '
-            'not reflected as a CKAN resource yet',
-            pkg_dict.get('id'),
-            record_id,
-        )
+    for file_entry in files:
+        filename = (file_entry.get('filename') or '').strip()
+        if not filename or filename in existing_names:
+            continue
+        try:
+            toolkit.get_action('resource_create')(
+                {'ignore_auth': True},
+                {
+                    'package_id': pkg_dict['id'],
+                    'url': record_url,
+                    'name': filename,
+                    'description': description,
+                },
+            )
+        except Exception:
+            log.exception(
+                'publish_guard: failed to create the Zenodo Link resource '
+                'for file %r of package %s (record %s) - the deposition is '
+                'published, just not reflected as a CKAN resource yet',
+                filename,
+                pkg_dict.get('id'),
+                record_id,
+            )
 
 
 def _accept_pending_community_inclusion(record_id, token, sandbox, package_id):
