@@ -195,9 +195,20 @@ def _split_labeled_subjects(subjects):
     everything else (including the many raw gene/allele cross-references
     FDF also produces, which have no single reliable label) stays a
     plain keyword string, same as map_keywords() would already produce
-    for it."""
+    for it.
+
+    Deduplicated (case-insensitive, first occurrence kept) - a gene
+    cross-referenced across several databases (NCBI Gene/MGI Gene/
+    Ensembl Gene/...) legitimately has one `subjects` entry per database,
+    all sharing the same plain `subject` text (e.g. "Apoe" three times
+    over), which otherwise shows up as a literal, repeated "Apoe, Apoe,
+    Apoe" in the description - same deduplication idea
+    datacite_converter.py itself already applies to the full subjects
+    list for a related reason."""
     labeled = []
     plain = []
+    seen_labeled = set()
+    seen_plain = set()
     for subject in subjects or []:
         text = (subject.get('subject') or '').strip()
         if not text:
@@ -205,11 +216,20 @@ def _split_labeled_subjects(subjects):
         scheme = subject.get('subjectScheme')
         label = SUBJECT_SCHEME_TO_LABEL.get(scheme)
         if label:
+            key = (label, text.lower())
+            if key in seen_labeled:
+                continue
+            seen_labeled.add(key)
             labeled.append((label, text))
-        elif scheme in RECOGNIZED_SUBJECT_SCHEMES:
-            plain.append(f'{text} ({scheme})')
         else:
-            plain.append(text)
+            entry = (
+                f'{text} ({scheme})' if scheme in RECOGNIZED_SUBJECT_SCHEMES else text
+            )
+            key = entry.lower()
+            if key in seen_plain:
+                continue
+            seen_plain.add(key)
+            plain.append(entry)
     return labeled, plain
 
 

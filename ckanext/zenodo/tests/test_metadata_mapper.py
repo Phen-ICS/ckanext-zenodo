@@ -173,6 +173,25 @@ def test_build_description_html_labels_organism_sex_and_strain():
     assert '<li>Apoe</li>' in html
 
 
+def test_build_description_html_dedupes_repeated_keywords():
+    # A gene cross-referenced across several databases legitimately has
+    # one subjects entry per database, all sharing the same plain text.
+    datacite_metadata = {
+        'subjects': [
+            {'subject': 'Apoe', 'subjectScheme': 'geneAccessionId'},
+            {'subject': 'Apoe', 'subjectScheme': 'NCBI Gene'},
+            {'subject': 'apoe', 'subjectScheme': 'MGI Gene'},
+            {'subject': 'Mus musculus', 'subjectScheme': 'NCBITaxon'},
+            {'subject': 'mus musculus', 'subjectScheme': 'NCBITaxon'},
+        ],
+    }
+
+    html = mm.build_zenodo_description_html(datacite_metadata, 'Jane Researcher')
+
+    assert html.count('Apoe') == 1
+    assert html.count('Mus musculus') == 1
+
+
 def test_datacite_to_zenodo_end_to_end():
     datacite_metadata = {
         'creators': [
