@@ -174,12 +174,25 @@ class ZenodoDepositionQuery:
     def pop_notice(cls, package_id):
         """Reads the pending notice and clears it in the same call, so
         it only ever shows once - returns None if there wasn't one (the
-        common case)."""
+        common case).
+
+        Explicitly commits the clearing write, unlike every other method
+        here. Confirmed empirically: this is called from a template
+        helper during a plain dataset-page GET, which - unlike an
+        action call (resource_create, package_update, ...) - never goes
+        through CKAN's own action-layer commit_and_remove(). Without a
+        commit here, the UPDATE is only ever visible within this one
+        request's own transaction (which is exactly why it still looked
+        right at the time of the render) and gets silently rolled back
+        once the request ends, so the very next pageview starts a fresh
+        transaction, rereads the same still-'published' row, and shows
+        the same notice again - forever, instead of once."""
         record = cls.read_package(package_id)
         if record is None or not record.pending_notice:
             return None
         notice = record.pending_notice
         cls.update_package(package_id, pending_notice=None)
+        Session.commit()
         return notice
 
     @classmethod

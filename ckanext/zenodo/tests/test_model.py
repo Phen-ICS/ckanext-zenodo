@@ -129,6 +129,30 @@ def test_set_and_pop_notice():
     assert ZenodoDepositionQuery.pop_notice(dataset['id']) is None
 
 
+def test_pop_notice_commits_the_clear_so_it_survives_a_rollback():
+    """Regression test for a real bug found via live HTTP testing:
+    pop_notice is called from a template helper during a plain
+    dataset-page GET, which never goes through CKAN's own
+    commit_and_remove() the way an action call does. A flush-only clear
+    was only ever visible within that one request's own transaction and
+    got silently rolled back once the request ended, so the very next,
+    separate pageview re-read the same still-set notice and showed it
+    again forever. Simulating "a later request's fresh read" here via
+    an explicit Session.rollback() right after - if the clear wasn't
+    really committed, this would resurrect 'published'."""
+    from ckan.model import Session
+
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.set_notice(dataset['id'], 'published')
+    Session.commit()
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) == 'published'
+    Session.rollback()
+
+    assert ZenodoDepositionQuery.read_package(dataset['id']).pending_notice is None
+
+
 def test_pop_notice_without_one_set_is_none():
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')

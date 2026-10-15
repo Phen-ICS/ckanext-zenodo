@@ -21,9 +21,32 @@ Once the job runs, real resources exist and this helper stops returning
 anything (the dataset no longer has a pending, unpublished deposition),
 so there is nothing left to show here and no risk of it ever
 duplicating the real resources.
+
+Confirmed empirically: CKAN renders the dataset page's own template at
+least twice for a single incoming request (not something this plugin
+controls or fully understands the reason for - a cache-key/ETag
+computation pass is one plausible explanation, not confirmed). A
+destructive read like zenodo_notice_for_package's own pop_notice()
+would otherwise have its result consumed by whichever render happens
+first and discarded, only for the *next* (real, final) render to find
+nothing left - exactly what was observed before this got memoized
+per-request via flask.g below.
+
+A second, separate issue was found (and fixed, in
+ZenodoDepositionQuery.pop_notice itself) while verifying the above: a
+plain dataset-page GET never goes through CKAN's own action-layer
+commit_and_remove(), unlike resource_create/package_update. Without an
+explicit commit there, pop_notice's clearing write was only ever
+visible within the one request that made it (same open transaction,
+so it still looked cleared *to that request*) and got silently rolled
+back once the request ended - so the very next, separate pageview
+re-read the same still-set notice from the DB and showed it again,
+forever, instead of once. Confirmed empirically via direct psql checks
+across several real HTTP requests before this was fixed.
 """
 
 from ckan.plugins import toolkit
+from flask import g, has_app_context
 
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
@@ -44,20 +67,39 @@ def zenodo_notice_for_package(pkg_dict):
     ckanext-doi's own synchronous equivalent) can't be used for
     something a deferred RQ job wants to announce. Returns None (the
     common case) if there's nothing to show; otherwise a dict
-    {'message': ...} and clears it, so it only ever shows once."""
+    {'message': ...} and clears it, so it only ever shows once.
+
+    Memoized per-request via flask.g (when there's an app context to
+    hang it on - a plain unit test calling this directly, with no
+    request/app context at all, just skips memoization and reads
+    straight from the DB every time, which is exactly what the
+    existing tests for this function already assume) - see this
+    module's own docstring for why a plain destructive read breaks
+    under CKAN's own multiple-renders-per-request behavior: every call
+    within the same request (however many that turns out to be)
+    returns the one result the *first* call actually popped, instead
+    of each one popping (and emptying) it in turn."""
     package_id = pkg_dict.get('id')
     if not package_id:
         return None
 
-    notice = ZenodoDepositionQuery.pop_notice(package_id)
-    if notice is None:
-        return None
+    cache_attr = f'_zenodo_notice_{package_id}'
+    memoize = has_app_context()
+    if memoize and hasattr(g, cache_attr):
+        return getattr(g, cache_attr)
 
-    message = _NOTICE_MESSAGES.get(notice, notice)
-    deposition = ZenodoDepositionQuery.read_package(package_id)
-    if deposition and deposition.zenodo_record_doi:
-        message = f'{message} (DOI: {deposition.zenodo_record_doi})'
-    return {'message': f'{message}.'}
+    notice = ZenodoDepositionQuery.pop_notice(package_id)
+    result = None
+    if notice is not None:
+        message = _NOTICE_MESSAGES.get(notice, notice)
+        deposition = ZenodoDepositionQuery.read_package(package_id)
+        if deposition and deposition.zenodo_record_doi:
+            message = f'{message} (DOI: {deposition.zenodo_record_doi})'
+        result = {'message': f'{message}.'}
+
+    if memoize:
+        setattr(g, cache_attr, result)
+    return result
 
 
 def zenodo_pending_deposition_for_package(pkg_dict):
