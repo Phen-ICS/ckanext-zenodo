@@ -224,10 +224,17 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
     )
     resources = pkg['resources']
     assert len(resources) == 1
-    assert resources[0]['url'] == 'https://sandbox.zenodo.org/records/rec-1'
+    # Concept-record base URL plus a per-file ?preview_file= so "Go to
+    # resource" opens straight to this file - see
+    # publish_guard._zenodo_file_preview_url.
+    assert (
+        resources[0]['url']
+        == 'https://sandbox.zenodo.org/records/rec-1?preview_file=results.csv'
+    )
     # The resource is named after the real uploaded file, not a generic
     # "Archived on Zenodo" - see test_create_zenodo_resources_* below.
     assert resources[0]['name'] == 'results.csv'
+    assert resources[0]['format'] == 'CSV'
     assert '10.5281/zenodo.1' in resources[0]['description']
 
 
@@ -263,7 +270,10 @@ def test_publish_deposition_resource_url_uses_the_concept_record(monkeypatch):
     pkg = toolkit.get_action('package_show')(
         {'ignore_auth': True}, {'id': dataset['id']}
     )
-    assert pkg['resources'][0]['url'] == 'https://sandbox.zenodo.org/records/concept-1'
+    assert (
+        pkg['resources'][0]['url']
+        == 'https://sandbox.zenodo.org/records/concept-1?preview_file=results.csv'
+    )
 
 
 def test_publish_deposition_leaves_unpublished_on_zenodo_error(monkeypatch):
@@ -320,12 +330,18 @@ def test_create_zenodo_resources_one_per_file():
     )
     resources = {r['name']: r for r in pkg_dict['resources']}
     assert set(resources) == {'photo.jpg', 'notes.txt'}
-    # Same deposition/record - same landing page URL for every file.
+    # Same deposition/record base URL, but each with its own
+    # ?preview_file= - not identical across files.
     assert (
         resources['photo.jpg']['url']
-        == resources['notes.txt']['url']
-        == 'https://sandbox.zenodo.org/records/rec-1'
+        == 'https://sandbox.zenodo.org/records/rec-1?preview_file=photo.jpg'
     )
+    assert (
+        resources['notes.txt']['url']
+        == 'https://sandbox.zenodo.org/records/rec-1?preview_file=notes.txt'
+    )
+    assert resources['photo.jpg']['format'] == 'JPEG'
+    assert resources['notes.txt']['format'] == 'TXT'
 
 
 def test_create_zenodo_resources_acts_as_the_site_user(monkeypatch):

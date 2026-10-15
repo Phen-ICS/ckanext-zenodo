@@ -16,7 +16,9 @@ TTL-marker trick is needed, just the straightforward check below.
 """
 
 import logging
+from urllib.parse import quote_plus
 
+from ckan.lib.helpers import unified_resource_format
 from ckan.model import repo
 from ckan.plugins import toolkit
 
@@ -226,6 +228,33 @@ def _zenodo_record_url(concept_record_id, sandbox):
     return f'https://{host}/records/{concept_record_id}'
 
 
+def _zenodo_file_preview_url(concept_record_id, sandbox, filename):
+    """Same concept-record URL as _zenodo_record_url (so it stays correct
+    across later versions, exactly as that one does), plus a
+    `?preview_file=` query string that makes Zenodo's own landing page
+    open straight to *this* file's preview instead of the record's
+    default (usually just the first file) - confirmed empirically
+    against the real sandbox, e.g. `test (Copie 3).csv` ->
+    `?preview_file=test+%28Copie+3%29.csv` (quote_plus: space -> '+',
+    everything else percent-encoded - matches exactly)."""
+    return f'{_zenodo_record_url(concept_record_id, sandbox)}?preview_file={quote_plus(filename)}'
+
+
+def _format_for_filename(filename):
+    """CKAN's own resource_item.html only shows a real format icon (vs.
+    the generic 'data' one) when res.format is set - resource_create
+    never gets a chance to guess it the way an actual upload does (the
+    url here is Zenodo's record page, which has no file extension of
+    its own to guess from). Derives it from the filename's own extension
+    instead, normalized through CKAN's own format table (e.g. 'csv' ->
+    'CSV') so it matches exactly what a native CKAN upload of the same
+    file type would show - confirmed via unified_resource_format, which
+    just returns unknown extensions back unchanged rather than raising."""
+    if '.' not in filename:
+        return ''
+    return unified_resource_format(filename.rsplit('.', 1)[-1])
+
+
 def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
     """Creates one genuine CKAN Link resource per file actually uploaded
     to Zenodo - confirmed, via actual testing, to be a better fit than a
@@ -238,23 +267,30 @@ def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
     One resource per file (not one generic "Archived on Zenodo" entry
     for the whole deposition) so each shows its own real filename in
     "Data and Resources" - a dataset can have several files in the same
-    Zenodo deposition (see get_or_create_open_deposition), and they all
-    share the same `url` (the *concept* record's landing page, stable
-    across versions - see _zenodo_record_url - not any one version's
-    own record id; Zenodo doesn't expose a stable direct-file URL
-    before publish anyway, and the landing page already lists every
-    file with its own download link).
+    Zenodo deposition (see get_or_create_open_deposition). Each one's
+    `url` is the *concept* record's landing page (stable across
+    versions - see _zenodo_record_url - not any one version's own
+    record id) plus a `?preview_file=` query string naming that
+    specific file (see _zenodo_file_preview_url) - confirmed
+    empirically that Zenodo's own landing page uses this to open
+    straight to that file's own preview/download rather than its
+    default (usually just the first file in the deposition), so CKAN's
+    own "Go to resource" link lands somewhere file-specific instead of
+    the same generic record page for every one of them.
     `files` is the `files` list a publish_deposition()/get_deposition()
     response already carries ({filename, filesize, checksum, ...} per
     file) - no separate API call or local bookkeeping needed for this.
 
-    Idempotent by (name, url) rather than a new DB column: if a resource
-    for this exact filename+record already exists (e.g. this job was
-    retried after a crash right after this step, on a previous run),
-    nothing new is created for it. Never fatal - the DOI is already
-    minted by the time this runs; a failure here just means the record
-    stays correctly published on Zenodo without (yet) a CKAN-side
-    resource for some or all of its files."""
+    Idempotent by (name, url-prefix) rather than a new DB column: if a
+    resource for this exact filename+record already exists (e.g. this
+    job was retried after a crash right after this step, on a previous
+    run), nothing new is created for it - matched by prefix, not exact
+    equality, so this also recognizes resources created by an earlier
+    version of this code that didn't yet have the per-file
+    `?preview_file=` suffix. Never fatal - the DOI is already minted by
+    the time this runs; a failure here just means the record stays
+    correctly published on Zenodo without (yet) a CKAN-side resource
+    for some or all of its files."""
     if concept_record_id is None or not files:
         return
 
@@ -262,7 +298,7 @@ def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
     existing_names = {
         r.get('name')
         for r in pkg_dict.get('resources') or []
-        if r.get('url') == record_url
+        if (r.get('url') or '').startswith(record_url)
     }
 
     description = f'Archived on Zenodo (DOI: {doi}).' if doi else 'Archived on Zenodo.'
@@ -299,9 +335,12 @@ def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
                 {'ignore_auth': True, 'user': site_user['name']},
                 {
                     'package_id': pkg_dict['id'],
-                    'url': record_url,
+                    'url': _zenodo_file_preview_url(
+                        concept_record_id, sandbox, filename
+                    ),
                     'name': filename,
                     'description': description,
+                    'format': _format_for_filename(filename),
                 },
             )
         except Exception:

@@ -132,7 +132,13 @@ def maybe_delete_published_file(context, resource, resources):
     record_url = _zenodo_record_url(
         deposition.concept_record_id or '', deposition.is_sandbox
     )
-    if full_resource.get('url') != record_url:
+    # Prefix match, not exact equality: each file's own resource now
+    # carries a per-file `?preview_file=` suffix on top of this same
+    # concept-record base URL (see publish_guard._zenodo_file_preview_url)
+    # - this still rejects an unrelated resource that merely happens to
+    # share the same filename (full_resource.get('url') would be
+    # something else entirely).
+    if not (full_resource.get('url') or '').startswith(record_url):
         return
     if filename not in ZenodoDepositionQuery.list_filenames(package_id):
         return
