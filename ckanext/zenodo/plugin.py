@@ -3,6 +3,7 @@ from ckan.plugins import toolkit
 
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
+from ckanext.zenodo.lib import xloader_guard
 from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_auth
 from ckanext.zenodo.lib.delete_zenodo_file import maybe_delete_published_file
 from ckanext.zenodo.lib.helpers import (
@@ -10,6 +11,15 @@ from ckanext.zenodo.lib.helpers import (
     zenodo_pending_deposition_for_package,
 )
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
+
+try:
+    from ckanext.xloader.interfaces import IXloader
+
+    HAS_XLOADER_INTERFACE = True
+except ImportError:
+    # ckanext-xloader isn't installed - nothing to opt out of, see
+    # xloader_guard.py's own docstring for why this hook exists at all.
+    HAS_XLOADER_INTERFACE = False
 
 
 class ZenodoPlugin(plugins.SingletonPlugin):
@@ -27,11 +37,26 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IResourceController, inherit=True)
     plugins.implements(plugins.ITemplateHelpers)
+    # Same conditional pattern ckanext-xloader's own plugin.py uses for
+    # the optional IDataDictionaryForm - a soft dependency, see
+    # xloader_guard.py's own docstring.
+    if HAS_XLOADER_INTERFACE:
+        plugins.implements(IXloader, inherit=True)
 
     # IAuthFunctions
 
     def get_auth_functions(self):
         return {'resource_delete': zenodo_resource_delete_auth}
+
+    if HAS_XLOADER_INTERFACE:
+        # IXloader
+
+        def can_upload(self, resource_id):
+            """Stops xloader from trying to load one of our own
+            Zenodo-backed Link resources into the datastore - see
+            xloader_guard.py's own docstring for why this is needed at
+            all."""
+            return xloader_guard.can_upload(resource_id)
 
     # IConfigurer
 
