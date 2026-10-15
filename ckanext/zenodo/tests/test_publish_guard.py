@@ -4,6 +4,7 @@ toolkit.enqueue_job and zenodo_client are both monkeypatched - no real
 RQ job, no real network."""
 
 import pytest
+from ckan.plugins import toolkit
 from ckan.tests import factories
 
 from ckanext.zenodo.lib import publish_guard, zenodo_client
@@ -174,6 +175,15 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
     assert record.zenodo_record_id == 'rec-1'
     assert record.zenodo_record_doi == '10.5281/zenodo.1'
 
+    pkg = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    resources = pkg['resources']
+    assert len(resources) == 1
+    assert resources[0]['url'] == 'https://sandbox.zenodo.org/records/rec-1'
+    assert resources[0]['name'] == 'Archived on Zenodo'
+    assert '10.5281/zenodo.1' in resources[0]['description']
+
 
 def test_publish_deposition_leaves_unpublished_on_zenodo_error(monkeypatch):
     dataset = factories.Dataset()
@@ -211,6 +221,58 @@ def test_publish_deposition_is_a_noop_when_already_published(monkeypatch):
 
 def test_publish_deposition_handles_missing_package():
     publish_guard._publish_deposition('does-not-exist')
+
+
+def test_create_zenodo_resource_is_idempotent_by_url():
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    publish_guard._create_zenodo_resource(pkg_dict, 'rec-1', '10.5281/zenodo.1', True)
+    # Simulates a retried publish job: pkg_dict now reflects the resource
+    # the first call already created.
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    publish_guard._create_zenodo_resource(pkg_dict, 'rec-1', '10.5281/zenodo.1', True)
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+
+
+def test_create_zenodo_resource_noop_without_a_record_id():
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    publish_guard._create_zenodo_resource(pkg_dict, None, '10.5281/zenodo.1', True)
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert pkg_dict['resources'] == []
+
+
+def test_create_zenodo_resource_swallows_failures(monkeypatch):
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    def failing_get_action(name):
+        def _boom(*a, **k):
+            raise toolkit.ValidationError({'url': ['boom']})
+
+        return _boom
+
+    monkeypatch.setattr(publish_guard.toolkit, 'get_action', failing_get_action)
+
+    # Must not raise - a failure here never undoes the already-minted DOI.
+    publish_guard._create_zenodo_resource(pkg_dict, 'rec-1', '10.5281/zenodo.1', True)
 
 
 def test_accept_pending_community_inclusion_accepts_the_open_request(monkeypatch):

@@ -3,7 +3,6 @@ from ckan.plugins import toolkit
 
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
-from ckanext.zenodo.lib.helpers import zenodo_deposition_for_package
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 
 
@@ -19,7 +18,6 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IBlueprint)
     plugins.implements(plugins.IPackageController, inherit=True)
-    plugins.implements(plugins.ITemplateHelpers)
 
     # IConfigurer
 
@@ -34,11 +32,6 @@ class ZenodoPlugin(plugins.SingletonPlugin):
 
     def get_blueprint(self):
         return [zenodo_upload]
-
-    # ITemplateHelpers
-
-    def get_helpers(self):
-        return {'zenodo_deposition_for_package': zenodo_deposition_for_package}
 
     # IPackageController
 

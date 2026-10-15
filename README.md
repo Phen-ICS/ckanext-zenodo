@@ -76,6 +76,19 @@ unverified assumptions, now settled:
   round-tripping a probe deposition through every plausible tag and
   reading back what Zenodo actually stored).
 
+## How the published record shows up in CKAN
+
+`publish_guard.py` creates a genuine CKAN **Link resource** (`url` =
+the published Zenodo record's landing page, no file upload) on the
+dataset right after a successful publish - not a bespoke display panel
+bolted on elsewhere. A real resource needs no template override to show
+up in the normal "Data and Resources" list, and - more importantly -
+gets picked up by anything that already iterates `pkg.resources`
+(ckanext-fair3r's DCAT/schema.org/Croissant export included), which a
+panel outside the resource list never would be. Idempotent by URL (no
+extra DB column): a retried publish job that already created the
+resource on an earlier, interrupted attempt won't create a duplicate.
+
 ## Tests
 
 ```shell
