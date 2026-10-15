@@ -1,0 +1,32 @@
+{#
+  Covers only the transient gap between a file reaching Zenodo (upload is
+  synchronous) and the real CKAN Link resource existing for it (created
+  by publish_guard.py's deferred RQ job, on the dataset's draft -> active
+  transition) - without it, someone landing on the dataset page in that
+  window sees CKAN's own plain "This dataset has no data" right after
+  successfully uploading, which reads as a failure rather than "still in
+  progress". Once the job runs, h.zenodo_pending_deposition_for_package()
+  stops returning anything (a real resource exists for it by then), so
+  this never duplicates or outlives the real resource.
+#}
+{% ckan_extends %}
+
+{% block resource_list %}
+  {% if h.zenodo_pending_deposition_for_package(pkg.id) %}
+    <style>
+      .zenodo-pending-notice {
+        margin-bottom: 12px;
+        padding: 10px 14px;
+        border: 1px solid #cfe3ea;
+        border-radius: 4px;
+        background: #f3f9fb;
+        color: #205b73;
+        font-size: 13px;
+      }
+    </style>
+    <div class="zenodo-pending-notice">
+      {{ _("This dataset's file is being archived on Zenodo - reload this page in a moment to see it.") }}
+    </div>
+  {% endif %}
+  {{ super() }}
+{% endblock %}
