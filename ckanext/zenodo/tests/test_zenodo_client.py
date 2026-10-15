@@ -310,6 +310,26 @@ def test_request_community_inclusion_swallows_an_already_open_request(monkeypatc
     assert result is None
 
 
+def test_request_community_inclusion_swallows_an_already_included_record(monkeypatch):
+    # Confirmed empirically against the real sandbox: a retry after an
+    # earlier call of this same function already got the request
+    # accepted gets this different wording, not the "already open
+    # request" one.
+    def already_included(*a, **k):
+        raise zenodo_client.ZenodoError(
+            'Zenodo returned 400: {"errors":[{"community_id":"fair3r",'
+            '"message":"The record is already included in this community."}]}'
+        )
+
+    monkeypatch.setattr(zenodo_client, '_request', already_included)
+
+    result = zenodo_client.request_community_inclusion(
+        42, 'fair3r', 'tok', sandbox=True
+    )
+
+    assert result is None
+
+
 def test_request_community_inclusion_reraises_other_errors(monkeypatch):
     def other_error(*a, **k):
         raise zenodo_client.ZenodoError('Zenodo returned 500: boom')
