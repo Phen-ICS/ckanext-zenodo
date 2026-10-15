@@ -31,7 +31,12 @@ from ckan.model import repo
 from ckan.plugins import toolkit
 from flask import Blueprint, jsonify, request
 
-from ckanext.zenodo.lib import rate_limit, zenodo_client, zenodo_config
+from ckanext.zenodo.lib import (
+    delete_zenodo_file,
+    rate_limit,
+    zenodo_client,
+    zenodo_config,
+)
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
 log = logging.getLogger(__name__)
@@ -159,3 +164,41 @@ def upload(package_name):
             },
         }
     )
+
+
+@zenodo_upload.route('/zenodo/upload/<package_name>/<filename>', methods=['DELETE'])
+def delete_pending(package_name, filename):
+    """Removes one file the user uploaded to Zenodo before the dataset
+    (and so the deposition) was published - they're the user's own
+    files, theirs to remove while there's still time. Once published,
+    deleting a file goes through CKAN's own normal "delete resource"
+    button instead (see lib/delete_zenodo_file.py's own docstring for
+    why that's a different, deferred code path)."""
+    if current_user.is_anonymous:
+        return _error('Login required', 403)
+
+    context = {'user': current_user.name}
+    try:
+        pkg_dict = toolkit.get_action('package_show')(context, {'id': package_name})
+    except toolkit.ObjectNotFound:
+        return _error('Dataset not found', 404)
+
+    try:
+        toolkit.check_access('package_update', context, {'id': pkg_dict['id']})
+    except toolkit.NotAuthorized:
+        return _error('Not authorized to edit this dataset', 403)
+
+    try:
+        deleted = delete_zenodo_file.delete_pending_file(pkg_dict['id'], filename)
+    except zenodo_client.ZenodoError:
+        log.exception(
+            'Failed to delete %s from the pending Zenodo deposition for package %s',
+            filename,
+            pkg_dict['id'],
+        )
+        return _error('Could not delete the file from Zenodo - try again shortly', 502)
+
+    if not deleted:
+        return _error('Nothing pending to delete for that file', 404)
+
+    return jsonify({'success': True})

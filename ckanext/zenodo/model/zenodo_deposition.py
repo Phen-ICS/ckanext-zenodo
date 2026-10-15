@@ -30,7 +30,16 @@ zenodo_deposition_table = Table(
     Column('zenodo_deposition_id', types.UnicodeText, nullable=False),
     Column('bucket_url', types.UnicodeText, nullable=False),
     # Only set once the deposition is actually published (DOI minted).
+    # zenodo_record_id is the *version's own* record id - it changes
+    # every time a new version is published (see lib/delete_zenodo_file.py);
+    # concept_record_id never changes across versions of the same
+    # deposition, and is what CKAN resources actually point at (see
+    # publish_guard.py's _zenodo_record_url) - stored separately so a
+    # later version-matching lookup (e.g. "is this CKAN resource one of
+    # ours?" in delete_zenodo_file.py) doesn't need to compare against a
+    # value that was only ever correct for one specific version.
     Column('zenodo_record_id', types.UnicodeText, nullable=True),
+    Column('concept_record_id', types.UnicodeText, nullable=True),
     Column('zenodo_record_doi', types.UnicodeText, nullable=True),
     Column('is_sandbox', Boolean, nullable=False, default=True),
     Column('published', Boolean, nullable=False, default=False),

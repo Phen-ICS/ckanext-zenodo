@@ -112,6 +112,30 @@ class ZenodoDepositionQuery:
         )
 
     @classmethod
+    def remove_file(cls, package_id, filename):
+        """Reverse of add_file - removes one filename (if present) and
+        decrements file_count to match, e.g. after the user deletes that
+        file (see lib/delete_zenodo_file.py). A no-op (not an error) if
+        the filename isn't actually in the list - deleting twice, or a
+        retried job after a crash right after this step, must not go
+        negative."""
+        record = cls.read_package(package_id)
+        if record is None:
+            return None
+        try:
+            filenames = json.loads(record.filenames or '[]')
+        except ValueError:
+            filenames = []
+        if filename not in filenames:
+            return record
+        filenames.remove(filename)
+        return cls.update_package(
+            package_id,
+            file_count=max(record.file_count - 1, 0),
+            filenames=json.dumps(filenames),
+        )
+
+    @classmethod
     def list_filenames(cls, package_id):
         """The real filenames recorded so far for this dataset's
         deposition, or [] if there's no deposition (or nothing uploaded
@@ -125,13 +149,17 @@ class ZenodoDepositionQuery:
             return []
 
     @classmethod
-    def mark_published(cls, package_id, zenodo_record_id, zenodo_record_doi):
-        return cls.update_package(
-            package_id,
-            published=True,
-            zenodo_record_id=zenodo_record_id,
-            zenodo_record_doi=zenodo_record_doi,
-        )
+    def mark_published(
+        cls, package_id, zenodo_record_id, zenodo_record_doi, concept_record_id=None
+    ):
+        kwargs = {
+            'published': True,
+            'zenodo_record_id': zenodo_record_id,
+            'zenodo_record_doi': zenodo_record_doi,
+        }
+        if concept_record_id is not None:
+            kwargs['concept_record_id'] = concept_record_id
+        return cls.update_package(package_id, **kwargs)
 
     @classmethod
     def delete_package(cls, package_id):

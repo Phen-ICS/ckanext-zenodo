@@ -225,3 +225,59 @@ def test_zenodo_error_returns_502(app, monkeypatch):
     response = _upload(app, dataset['name'], 'a.zip', b'x' * 10, token=user['token'])
 
     assert response.status_code == 502
+
+
+def _delete(app, package_name, filename, token=None):
+    # CKANTestApp only wraps get/post/options itself - DELETE goes
+    # through its own underlying werkzeug test client (app.client)
+    # directly instead.
+    headers = {'Authorization': token} if token else {}
+    return app.client.delete(
+        f'/zenodo/upload/{package_name}/{filename}', headers=headers
+    )
+
+
+def test_delete_pending_requires_login(app):
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+
+    response = _delete(app, dataset['name'], 'a.zip')
+
+    assert response.status_code == 403
+
+
+def test_delete_pending_removes_an_uploaded_file(app, fake_zenodo, monkeypatch):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+    _upload(app, dataset['name'], 'a.zip', b'x' * 10, token=user['token'])
+
+    monkeypatch.setattr(
+        zenodo_client,
+        'get_deposition',
+        lambda *a, **k: {'files': [{'id': 'file-1', 'filename': 'a.zip'}]},
+    )
+    deleted = []
+    monkeypatch.setattr(
+        zenodo_client,
+        'delete_deposition_file',
+        lambda dep_id, file_id, *a, **k: deleted.append((dep_id, file_id)),
+    )
+
+    response = _delete(app, dataset['name'], 'a.zip', token=user['token'])
+
+    assert response.status_code == 200
+    assert response.json['success'] is True
+    assert deleted == [('dep-1', 'file-1')]
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == []
+
+
+def test_delete_pending_unknown_filename_returns_404(app):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+    _upload(app, dataset['name'], 'a.zip', b'x' * 10, token=user['token'])
+
+    response = _delete(app, dataset['name'], 'nope.zip', token=user['token'])
+
+    assert response.status_code == 404

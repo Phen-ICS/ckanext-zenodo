@@ -3,6 +3,7 @@ from ckan.plugins import toolkit
 
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
+from ckanext.zenodo.lib.delete_zenodo_file import maybe_delete_published_file
 from ckanext.zenodo.lib.helpers import zenodo_pending_deposition_for_package
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 
@@ -19,6 +20,7 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IBlueprint)
     plugins.implements(plugins.IPackageController, inherit=True)
+    plugins.implements(plugins.IResourceController, inherit=True)
     plugins.implements(plugins.ITemplateHelpers)
 
     # IConfigurer
@@ -52,3 +54,12 @@ class ZenodoPlugin(plugins.SingletonPlugin):
         implementation plan's reasoning for keeping these separate."""
         maybe_publish_pending_deposition(pkg_dict)
         return pkg_dict
+
+    # IResourceController
+
+    def before_resource_delete(self, context, resource, resources):
+        """Reacts to CKAN's own, already-existing "delete resource"
+        button/action - see lib/delete_zenodo_file.py's own docstring
+        for why this is a deferred RQ job rather than anything done
+        synchronously here."""
+        maybe_delete_published_file(context, resource, resources)

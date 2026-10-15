@@ -181,13 +181,24 @@ def _publish_deposition(package_id):
         return
 
     record_id = result.get('record_id') or result.get('id')
-    _accept_pending_community_inclusion(record_id, token, sandbox, package_id)
+    accept_pending_community_inclusion(record_id, token, sandbox, package_id)
+    # The *concept* record - shared by every version of this deposition,
+    # never any one version's own id - is what CKAN resources point at
+    # (see _zenodo_record_url's own docstring for why): confirmed
+    # empirically that /records/{conceptrecid} always redirects to
+    # whichever version is latest, so these resources need no update at
+    # all when a later version is published (e.g. after deleting a
+    # file - see delete_zenodo_file.py).
+    concept_record_id = result.get('conceptrecid') or record_id
     _create_zenodo_resources(
-        pkg_dict, record_id, result.get('doi'), sandbox, result.get('files')
+        pkg_dict, concept_record_id, result.get('doi'), sandbox, result.get('files')
     )
 
     ZenodoDepositionQuery.mark_published(
-        package_id, result.get('id'), result.get('doi')
+        package_id,
+        result.get('id'),
+        result.get('doi'),
+        concept_record_id=concept_record_id,
     )
     # Own RQ job, own transaction - nothing else commits this for us, same
     # reasoning as the upload blueprint's own repo.commit_and_remove().
@@ -196,12 +207,20 @@ def _publish_deposition(package_id):
     repo.commit_and_remove()
 
 
-def _zenodo_record_url(record_id, sandbox):
+def _zenodo_record_url(concept_record_id, sandbox):
+    """The *concept* record's own landing page - shared by every version
+    of a deposition, never any one version's own record id. Confirmed
+    empirically against the real sandbox: this URL (and the concept DOI
+    that resolves to it) always redirects to whichever version is
+    currently latest, so a CKAN resource pointing at it stays correct
+    forever, with no update needed, even after a later version is
+    published (e.g. after deleting a file - see
+    lib/delete_zenodo_file.py)."""
     host = 'sandbox.zenodo.org' if sandbox else 'zenodo.org'
-    return f'https://{host}/records/{record_id}'
+    return f'https://{host}/records/{concept_record_id}'
 
 
-def _create_zenodo_resources(pkg_dict, record_id, doi, sandbox, files):
+def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
     """Creates one genuine CKAN Link resource per file actually uploaded
     to Zenodo - confirmed, via actual testing, to be a better fit than a
     bespoke display-only panel outside the resource list: a real
@@ -214,9 +233,11 @@ def _create_zenodo_resources(pkg_dict, record_id, doi, sandbox, files):
     for the whole deposition) so each shows its own real filename in
     "Data and Resources" - a dataset can have several files in the same
     Zenodo deposition (see get_or_create_open_deposition), and they all
-    share the same `url` (the record's landing page - Zenodo doesn't
-    expose a stable direct-file URL before publish, and the landing page
-    already lists every file with its own download link anyway).
+    share the same `url` (the *concept* record's landing page, stable
+    across versions - see _zenodo_record_url - not any one version's
+    own record id; Zenodo doesn't expose a stable direct-file URL
+    before publish anyway, and the landing page already lists every
+    file with its own download link).
     `files` is the `files` list a publish_deposition()/get_deposition()
     response already carries ({filename, filesize, checksum, ...} per
     file) - no separate API call or local bookkeeping needed for this.
@@ -228,10 +249,10 @@ def _create_zenodo_resources(pkg_dict, record_id, doi, sandbox, files):
     minted by the time this runs; a failure here just means the record
     stays correctly published on Zenodo without (yet) a CKAN-side
     resource for some or all of its files."""
-    if record_id is None or not files:
+    if concept_record_id is None or not files:
         return
 
-    record_url = _zenodo_record_url(record_id, sandbox)
+    record_url = _zenodo_record_url(concept_record_id, sandbox)
     existing_names = {
         r.get('name')
         for r in pkg_dict.get('resources') or []
@@ -257,9 +278,9 @@ def _create_zenodo_resources(pkg_dict, record_id, doi, sandbox, files):
     except Exception:
         log.exception(
             'publish_guard: failed to resolve the site user for package %s '
-            '(record %s) - skipping Zenodo Link resource creation',
+            '(concept record %s) - skipping Zenodo Link resource creation',
             pkg_dict.get('id'),
-            record_id,
+            concept_record_id,
         )
         return
 
@@ -280,15 +301,16 @@ def _create_zenodo_resources(pkg_dict, record_id, doi, sandbox, files):
         except Exception:
             log.exception(
                 'publish_guard: failed to create the Zenodo Link resource '
-                'for file %r of package %s (record %s) - the deposition is '
-                'published, just not reflected as a CKAN resource yet',
+                'for file %r of package %s (concept record %s) - the '
+                'deposition is published, just not reflected as a CKAN '
+                'resource yet',
                 filename,
                 pkg_dict.get('id'),
-                record_id,
+                concept_record_id,
             )
 
 
-def _accept_pending_community_inclusion(record_id, token, sandbox, package_id):
+def accept_pending_community_inclusion(record_id, token, sandbox, package_id):
     """Confirmed empirically against the real sandbox (Stage 8 smoke
     test): publishing a deposition whose metadata names a community only
     creates a pending "community-inclusion" request against the record -

@@ -144,7 +144,7 @@ def publish_deposition(deposition_id, access_token, sandbox=False):
 # the published record) until someone with curation rights on the
 # community explicitly accepts it - even when that someone is the same
 # shared account that owns the community. The two calls below close that
-# gap; see publish_guard.py's _accept_pending_community_inclusion for how
+# gap; see publish_guard.py's accept_pending_community_inclusion for how
 # they're used together right after a successful publish.
 
 
@@ -162,3 +162,38 @@ def accept_request(request_id, access_token, sandbox=False):
     request targets (a community, here)."""
     url = f'{base_url(sandbox)}/requests/{request_id}/actions/accept'
     return _request('POST', url, access_token, json={})
+
+
+# A published Zenodo record is immutable by design (DOIs are meant to be
+# permanent) - there is no "delete a file from a published record"
+# endpoint. Removing a file from an already-published deposition instead
+# means: create a new draft version (a full copy of the latest version's
+# files+metadata), delete the file from *that* draft, then publish it -
+# the old version's own DOI stays frozen and resolvable with its
+# original files forever, while the *concept* DOI (shared by every
+# version, see metadata_mapper... no, see publish_guard.py's
+# _zenodo_record_url, which already points resources at the concept
+# record rather than any one version) starts resolving to this new
+# version instead. Confirmed empirically against the real sandbox: v1
+# published with 2 files, newversion -> draft copy with the same 2
+# files, deleted 1, published as v2 (own new record id/DOI, 1 file) -
+# v1's own record still shows both files afterwards, unchanged, and the
+# concept URL that pointed at v1 now resolves to v2.
+def create_new_version(deposition_id, access_token, sandbox=False):
+    """Creates a new draft version of a published deposition (a copy of
+    its latest version's files/metadata, itself unpublished) - returns
+    the new draft's own deposition dict (its own 'id', 'links.bucket',
+    etc., not the old one's)."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/actions/newversion'
+    return _request('POST', url, access_token)
+
+
+def delete_deposition_file(deposition_id, file_id, access_token, sandbox=False):
+    """Deletes one file from a deposition that is itself still a draft
+    (either a never-yet-published deposition, or a new-version draft
+    from create_new_version() above) - Zenodo rejects this on an
+    already-published deposition. `file_id` is Zenodo's own internal id
+    for that file (from get_deposition()'s `files[].id`), not its
+    filename."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/files/{file_id}'
+    return _request('DELETE', url, access_token)

@@ -243,3 +243,34 @@ def test_accept_request_hits_accept_action(monkeypatch):
     assert captured['url'].endswith('/requests/req-id/actions/accept')
     assert captured['json'] == {}
     assert result == {'status': 'accepted'}
+
+
+def test_create_new_version_hits_newversion_action(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: (
+            captured.update(method=method, url=url) or {'id': 'new-draft-1'}
+        ),
+    )
+
+    result = zenodo_client.create_new_version(42, 'tok', sandbox=True)
+
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/deposit/depositions/42/actions/newversion')
+    assert result == {'id': 'new-draft-1'}
+
+
+def test_delete_deposition_file_hits_the_files_endpoint(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: captured.update(method=method, url=url) or {},
+    )
+
+    zenodo_client.delete_deposition_file(42, 'file-id-1', 'tok', sandbox=True)
+
+    assert captured['method'] == 'DELETE'
+    assert captured['url'].endswith('/deposit/depositions/42/files/file-id-1')

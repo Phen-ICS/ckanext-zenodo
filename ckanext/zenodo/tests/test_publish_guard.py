@@ -228,6 +228,38 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
     assert '10.5281/zenodo.1' in resources[0]['description']
 
 
+def test_publish_deposition_resource_url_uses_the_concept_record(monkeypatch):
+    # Not the version's own record id - the concept record's own url is
+    # what stays correct forever across later versions (see
+    # publish_guard._zenodo_record_url's own docstring, confirmed
+    # empirically against the real sandbox).
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    monkeypatch.setattr(zenodo_client, 'update_deposition_metadata', lambda *a, **k: {})
+    monkeypatch.setattr(
+        zenodo_client,
+        'publish_deposition',
+        lambda *a, **k: {
+            'id': 'rec-1',
+            'conceptrecid': 'concept-1',
+            'doi': '10.5281/zenodo.1',
+            'files': [{'filename': 'results.csv'}],
+        },
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
+    )
+
+    publish_guard._publish_deposition(dataset['id'])
+
+    pkg = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert pkg['resources'][0]['url'] == 'https://sandbox.zenodo.org/records/concept-1'
+
+
 def test_publish_deposition_leaves_unpublished_on_zenodo_error(monkeypatch):
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
@@ -411,7 +443,7 @@ def test_create_zenodo_resources_swallows_failures(monkeypatch):
     )
 
 
-def test_accept_pending_community_inclusion_accepts_the_open_request(monkeypatch):
+def testaccept_pending_community_inclusion_accepts_the_open_request(monkeypatch):
     calls = []
     monkeypatch.setattr(
         zenodo_client,
@@ -435,12 +467,12 @@ def test_accept_pending_community_inclusion_accepts_the_open_request(monkeypatch
         lambda request_id, *a, **k: calls.append(request_id),
     )
 
-    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
 
     assert calls == ['req-1']
 
 
-def test_accept_pending_community_inclusion_noop_when_none_open(monkeypatch):
+def testaccept_pending_community_inclusion_noop_when_none_open(monkeypatch):
     monkeypatch.setattr(
         zenodo_client,
         'list_record_requests',
@@ -451,23 +483,23 @@ def test_accept_pending_community_inclusion_noop_when_none_open(monkeypatch):
         zenodo_client, 'accept_request', lambda *a, **k: calls.append(1)
     )
 
-    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
 
     assert calls == []
 
 
-def test_accept_pending_community_inclusion_noop_without_record_id(monkeypatch):
+def testaccept_pending_community_inclusion_noop_without_record_id(monkeypatch):
     calls = []
     monkeypatch.setattr(
         zenodo_client, 'list_record_requests', lambda *a, **k: calls.append(1)
     )
 
-    publish_guard._accept_pending_community_inclusion(None, 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion(None, 'tok', True, 'pkg-1')
 
     assert calls == []
 
 
-def test_accept_pending_community_inclusion_swallows_zenodo_error(monkeypatch):
+def testaccept_pending_community_inclusion_swallows_zenodo_error(monkeypatch):
     def failing_list(*a, **k):
         raise zenodo_client.ZenodoError('boom')
 
@@ -475,7 +507,7 @@ def test_accept_pending_community_inclusion_swallows_zenodo_error(monkeypatch):
 
     # Must not raise - a failure here never rolls back the already-minted
     # DOI/publish.
-    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
     # No exception raised - that's the whole assertion.
 
 

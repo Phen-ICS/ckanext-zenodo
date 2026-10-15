@@ -10,12 +10,19 @@
   on purpose). Once the job runs, h.zenodo_pending_deposition_for_package()
   stops returning anything (real resources exist for it by then), so
   this never duplicates or outlives them.
+
+  Also the only place a "remove this file" button makes sense for a
+  file still pending (once published, that goes through CKAN's own
+  normal "delete resource" button instead - see
+  lib/delete_zenodo_file.py's own docstring) - these are the user's own
+  files, theirs to remove while there's still time.
 #}
 {% ckan_extends %}
 
 {% block resource_list %}
   {% set zenodo_pending = h.zenodo_pending_deposition_for_package(pkg) %}
   {% if zenodo_pending %}
+    {% set zenodo_can_edit = h.check_access('package_update', {'id': pkg.id}) %}
     {% if zenodo_pending.waiting_for_public %}
       {% set zenodo_message = _("This dataset's file has been uploaded to Zenodo, but won't be archived with a public DOI until this dataset itself is made public.") %}
     {% else %}
@@ -38,9 +45,39 @@
       }
       .zenodo-pending-files {
         margin: 6px 0 0;
-        padding-left: 18px;
+        padding-left: 0;
+        list-style: none;
         font-size: 12px;
         color: #44707f;
+      }
+      .zenodo-pending-files li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 2px 0;
+      }
+      .zenodo-pending-files li span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .zenodo-remove-file {
+        flex: 0 0 auto;
+        border: none;
+        background: none;
+        color: #a33;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 0 2px;
+      }
+      .zenodo-remove-file:hover {
+        text-decoration: underline;
+      }
+      .zenodo-remove-file:disabled {
+        color: #999;
+        cursor: default;
+        text-decoration: none;
       }
     </style>
     <div class="zenodo-pending-notice">
@@ -52,13 +89,78 @@
         {{ zenodo_message }}
       </div>
       {% if zenodo_pending.filenames %}
-        <ul class="zenodo-pending-files">
+        <ul class="zenodo-pending-files" data-zenodo-package="{{ pkg.name }}">
           {% for filename in zenodo_pending.filenames %}
-            <li title="{{ filename }}">{{ filename }}</li>
+            <li>
+              <span title="{{ filename }}">{{ filename }}</span>
+              {% if zenodo_can_edit %}
+                <button
+                  type="button"
+                  class="zenodo-remove-file"
+                  data-filename="{{ filename }}"
+                  title="{{ _('Remove this file from Zenodo') }}"
+                >{{ _('Remove') }}</button>
+              {% endif %}
+            </li>
           {% endfor %}
         </ul>
       {% endif %}
     </div>
+    {% if zenodo_can_edit and zenodo_pending.filenames %}
+      <script>
+        document.addEventListener("DOMContentLoaded", function () {
+          var $list = $(".zenodo-pending-files");
+          if (!$list.length) {
+            return;
+          }
+          var packageName = $list.data("zenodo-package");
+
+          function csrfFieldName() {
+            return $('meta[name="csrf_field_name"]').attr("content") || null;
+          }
+          function csrfHeaderToken() {
+            var fieldName = csrfFieldName();
+            return fieldName ? $('meta[name="' + fieldName + '"]').attr("content") : null;
+          }
+
+          $list.on("click", ".zenodo-remove-file", function () {
+            var $button = $(this);
+            var filename = $button.data("filename");
+            if (!window.confirm("{{ _('Remove') }} " + filename + "?")) {
+              return;
+            }
+            $button.prop("disabled", true).text("{{ _('Removing…') }}");
+
+            var xhr = new XMLHttpRequest();
+            xhr.open(
+              "DELETE",
+              "/zenodo/upload/" + encodeURIComponent(packageName) + "/" + encodeURIComponent(filename),
+              true
+            );
+            var csrfToken = csrfHeaderToken();
+            if (csrfToken) {
+              xhr.setRequestHeader("X-CSRFToken", csrfToken);
+            }
+            xhr.onload = function () {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                $button.closest("li").remove();
+                if (!$list.find("li").length) {
+                  window.location.reload();
+                }
+              } else {
+                $button.prop("disabled", false).text("{{ _('Remove') }}");
+                window.alert("{{ _('Could not remove the file - try again shortly.') }}");
+              }
+            };
+            xhr.onerror = function () {
+              $button.prop("disabled", false).text("{{ _('Remove') }}");
+              window.alert("{{ _('Network error.') }}");
+            };
+            xhr.send();
+          });
+        });
+      </script>
+    {% endif %}
   {% endif %}
   {{ super() }}
 {% endblock %}
