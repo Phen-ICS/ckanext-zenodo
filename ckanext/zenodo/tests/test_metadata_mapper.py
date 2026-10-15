@@ -144,8 +144,33 @@ def test_build_description_html_avoids_disallowed_tags():
         assert disallowed not in html
     assert 'An abstract.' in html
     assert 'Smith, John' in html
-    assert 'Mus musculus (NCBITaxon)' in html
+    # NCBITaxon is a labeled subject (Organism) in the description - see
+    # test_build_description_html_labels_organism_sex_and_strain - not
+    # the plain "(NCBITaxon)"-suffixed keyword map_keywords() would
+    # produce for Zenodo's own separate `keywords` field.
+    assert '<strong>Organism:</strong> Mus musculus' in html
     assert '2026' in html
+
+
+def test_build_description_html_labels_organism_sex_and_strain():
+    # Confirmed against a real gene/allele FDF dataset's fdf_output_json.
+    datacite_metadata = {
+        'subjects': [
+            {'subject': 'Mus musculus', 'subjectScheme': 'NCBITaxon'},
+            {'subject': 'Female', 'subjectScheme': 'PATO'},
+            {'subject': 'C57BL/6NJ', 'subjectScheme': 'speciesBackground'},
+            {'subject': 'Apoe', 'subjectScheme': 'geneAccessionId'},
+        ],
+    }
+
+    html = mm.build_zenodo_description_html(datacite_metadata, 'Jane Researcher')
+
+    assert '<strong>Organism:</strong> Mus musculus' in html
+    assert '<strong>Sex:</strong> Female' in html
+    assert '<strong>Strain:</strong> C57BL/6NJ' in html
+    # Unrecognized/unlabeled schemes (gene cross-references etc.) still
+    # fall back to a plain keyword, same as before this change.
+    assert '<li>Apoe</li>' in html
 
 
 def test_datacite_to_zenodo_end_to_end():

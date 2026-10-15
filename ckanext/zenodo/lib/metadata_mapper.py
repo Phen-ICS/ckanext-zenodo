@@ -95,6 +95,22 @@ ZENODO_UPLOAD_TYPE_FALLBACK = 'other'
 # with every arbitrary subjectScheme value that might appear.
 RECOGNIZED_SUBJECT_SCHEMES = {'NCBITaxon', 'ChEBI', 'DOID', 'UBERON', 'EFO'}
 
+# A handful of subjectScheme values that map to one specific, well-known
+# FDF field - rendered as "Label: value" in the description instead of a
+# plain, unlabeled keyword bullet (see _split_labeled_subjects below).
+# Confirmed against a real gene/allele FDF dataset's fdf_output_json:
+# NCBITaxon is the organism, speciesBackground/Strain is the mouse
+# strain, and the only PATO-scheme subjects this pipeline ever produces
+# are the FDF form's Sex field (PATO is a general phenotype/trait
+# ontology - if subjects ever start carrying other PATO terms, this
+# mapping would need to stop assuming "PATO always means Sex").
+SUBJECT_SCHEME_TO_LABEL = {
+    'NCBITaxon': 'Organism',
+    'PATO': 'Sex',
+    'speciesBackground': 'Strain',
+    'Strain': 'Strain',
+}
+
 _ORCID_SCHEME = 'ORCID'
 _ORCID_URL_PREFIX = 'https://orcid.org/'
 
@@ -170,6 +186,33 @@ def map_keywords(subjects):
     return keywords
 
 
+def _split_labeled_subjects(subjects):
+    """Splits subjects[] into (labeled, plain) for the description's own
+    rendering - NOT used for map_keywords()/Zenodo's real `keywords`
+    field, which stays a flat tag list regardless (that's what it's
+    for). `labeled` is a list of (label, value) pairs for anything whose
+    subjectScheme is in SUBJECT_SCHEME_TO_LABEL (Organism/Sex/Strain);
+    everything else (including the many raw gene/allele cross-references
+    FDF also produces, which have no single reliable label) stays a
+    plain keyword string, same as map_keywords() would already produce
+    for it."""
+    labeled = []
+    plain = []
+    for subject in subjects or []:
+        text = (subject.get('subject') or '').strip()
+        if not text:
+            continue
+        scheme = subject.get('subjectScheme')
+        label = SUBJECT_SCHEME_TO_LABEL.get(scheme)
+        if label:
+            labeled.append((label, text))
+        elif scheme in RECOGNIZED_SUBJECT_SCHEMES:
+            plain.append(f'{text} ({scheme})')
+        else:
+            plain.append(text)
+    return labeled, plain
+
+
 def map_related_identifiers(related_identifiers):
     """DataCite relatedIdentifiers[] -> Zenodo related_identifiers[]
     ({relation, identifier}). Zenodo's own `resource_type` for the related
@@ -240,9 +283,17 @@ def build_zenodo_description_html(datacite_metadata, submitter_display_name):
         if names:
             lines.append(f'<p><strong>🧑‍🔬 Creators:</strong> {names}</p>')
 
-    keywords = map_keywords(datacite_metadata.get('subjects'))
-    if keywords:
-        items = ''.join(f'<li>{kw}</li>' for kw in keywords)
+    labeled_subjects, plain_keywords = _split_labeled_subjects(
+        datacite_metadata.get('subjects')
+    )
+    if labeled_subjects:
+        items = ''.join(
+            f'<li><strong>{label}:</strong> {value}</li>'
+            for label, value in labeled_subjects
+        )
+        lines.append(f'<ul>{items}</ul>')
+    if plain_keywords:
+        items = ''.join(f'<li>{kw}</li>' for kw in plain_keywords)
         lines.append(f'<p><strong>🏷️ Keywords:</strong></p><ul>{items}</ul>')
 
     publication_year = datacite_metadata.get('publicationYear')
