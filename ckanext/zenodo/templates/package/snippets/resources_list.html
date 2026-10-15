@@ -43,21 +43,34 @@
       .zenodo-pending-item .description {
         color: var(--fair3r-color-muted, #6c6c6c);
       }
-      .zenodo-remove-file {
-        margin-top: 4px;
-      }
     </style>
     <ul class="resource-list">
       {% for filename in zenodo_pending.filenames %}
+        {% set ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'data' %}
         <li class="resource-item zenodo-pending-item">
-          <span class="heading" title="{{ filename }}">{{ filename }}</span>
+          <span class="heading" title="{{ filename }}">
+            {{ filename }}
+            {# Same sprite-icon mechanism CKAN's own resource_item.html
+               uses (.format-label, data-format=<extension>) - without
+               it the 60px CKAN already reserves on the left for it
+               (.resource-item's own left padding) was just empty
+               space. #}
+            <span class="format-label" data-format="{{ ext }}">{{ ext }}</span>
+          </span>
           <p class="description">{{ zenodo_message }}</p>
           {% if zenodo_can_edit %}
-            <button
-              type="button"
-              class="btn btn-danger btn-sm zenodo-remove-file"
-              data-filename="{{ filename }}"
-            >{{ _('Remove') }}</button>
+            {# .btn-group is positioned absolutely at top-right by
+               CKAN's own CSS (same spot its "Explore" button sits in
+               on a real resource item) - keeps this on the same line
+               as the heading/description instead of pushing them
+               down. #}
+            <div class="btn-group">
+              <button
+                type="button"
+                class="btn btn-danger btn-sm zenodo-remove-file"
+                data-filename="{{ filename }}"
+              >{{ _('Remove') }}</button>
+            </div>
           {% endif %}
         </li>
       {% endfor %}

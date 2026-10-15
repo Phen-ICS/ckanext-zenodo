@@ -1,6 +1,6 @@
 [project]
 name = "ckanext-zenodo"
-version = "0.1.15"
+version = "0.1.16"
 description = "Publishes large or non-tabular dataset files to Zenodo (sandbox or production) instead of CKAN storage, mapping FDF metadata into the Zenodo deposition."
 readme = "README.md"
 requires-python = ">=3.10"
