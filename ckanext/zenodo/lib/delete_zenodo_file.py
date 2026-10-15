@@ -46,8 +46,9 @@ import logging
 from ckan.model import repo
 from ckan.plugins import toolkit
 
-from ckanext.zenodo.lib import zenodo_client, zenodo_config
+from ckanext.zenodo.lib import image_preview, zenodo_client, zenodo_config
 from ckanext.zenodo.lib.publish_guard import (
+    _format_for_filename,
     _zenodo_record_url,
     accept_pending_community_inclusion,
 )
@@ -202,6 +203,7 @@ def _delete_published_file(package_id, filename):
         zenodo_record_id=record_id,
         zenodo_record_doi=result.get('doi'),
     )
+    _resync_remaining_image_previews(package_id, deposition, record_id, sandbox, result)
     # Same DB-backed "flash, but surviving past this request" as
     # publish_guard.py's own - see lib/helpers.py's
     # zenodo_notice_for_package.
@@ -209,3 +211,48 @@ def _delete_published_file(package_id, filename):
     # Own RQ job, own transaction - same reasoning as publish_guard.py's
     # own repo.commit_and_remove().
     repo.commit_and_remove()
+
+
+def _resync_remaining_image_previews(
+    package_id, deposition, record_id, sandbox, result
+):
+    """Every remaining file just got a new version - and, with it, a new
+    per-version direct content link (see image_preview.py's own
+    docstring for why that link isn't stable the way the resource's own
+    `url` is). Re-points each remaining file's own Image view at the new
+    one, the same way publish_guard.py does right after the first
+    publish. Never fatal - see image_preview.sync_image_preview's own
+    docstring; a missed resync here is a cosmetic gap, not a reason to
+    fail this job after Zenodo and the deposition row are already
+    correctly updated."""
+    try:
+        site_user = toolkit.get_action('get_site_user')({'ignore_auth': True}, {})
+    except Exception:
+        log.exception(
+            'delete_zenodo_file: failed to resolve the site user for '
+            'package %s - skipping image preview resync',
+            package_id,
+        )
+        return
+
+    record_url = _zenodo_record_url(deposition.concept_record_id, sandbox)
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': package_id}
+    )
+    resources_by_name = {
+        r.get('name'): r
+        for r in pkg_dict.get('resources') or []
+        if (r.get('url') or '').startswith(record_url)
+    }
+
+    for file_entry in result.get('files') or []:
+        filename = (file_entry.get('filename') or '').strip()
+        resource = resources_by_name.get(filename)
+        if not filename or resource is None:
+            continue
+        image_preview.sync_image_preview(
+            resource['id'],
+            _format_for_filename(filename),
+            image_preview.zenodo_file_content_url(record_id, sandbox, filename),
+            site_user['name'],
+        )

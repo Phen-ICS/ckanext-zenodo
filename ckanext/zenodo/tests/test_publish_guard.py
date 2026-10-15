@@ -322,7 +322,7 @@ def test_create_zenodo_resources_one_per_file():
     files = [{'filename': 'photo.jpg'}, {'filename': 'notes.txt'}]
 
     publish_guard._create_zenodo_resources(
-        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, files
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
     )
 
     pkg_dict = toolkit.get_action('package_show')(
@@ -379,7 +379,12 @@ def test_create_zenodo_resources_acts_as_the_site_user(monkeypatch):
     monkeypatch.setattr(publish_guard.toolkit, 'get_action', spying_get_action)
 
     publish_guard._create_zenodo_resources(
-        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, [{'filename': 'photo.jpg'}]
+        pkg_dict,
+        'rec-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        True,
+        [{'filename': 'photo.jpg'}],
     )
 
     assert captured.get('user') == site_user['name']
@@ -393,7 +398,7 @@ def test_create_zenodo_resources_idempotent_by_name():
     files = [{'filename': 'photo.jpg'}]
 
     publish_guard._create_zenodo_resources(
-        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, files
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
     )
     # Simulates a retried publish job: pkg_dict now reflects the resource
     # the first call already created.
@@ -401,7 +406,7 @@ def test_create_zenodo_resources_idempotent_by_name():
         {'ignore_auth': True}, {'id': dataset['id']}
     )
     publish_guard._create_zenodo_resources(
-        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, files
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
     )
 
     pkg_dict = toolkit.get_action('package_show')(
@@ -417,7 +422,7 @@ def test_create_zenodo_resources_noop_without_a_record_id():
     )
 
     publish_guard._create_zenodo_resources(
-        pkg_dict, None, '10.5281/zenodo.1', True, [{'filename': 'photo.jpg'}]
+        pkg_dict, None, 'rec-1', '10.5281/zenodo.1', True, [{'filename': 'photo.jpg'}]
     )
 
     pkg_dict = toolkit.get_action('package_show')(
@@ -433,10 +438,10 @@ def test_create_zenodo_resources_noop_without_files():
     )
 
     publish_guard._create_zenodo_resources(
-        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, []
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, []
     )
     publish_guard._create_zenodo_resources(
-        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, None
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, None
     )
 
     pkg_dict = toolkit.get_action('package_show')(
@@ -461,7 +466,12 @@ def test_create_zenodo_resources_swallows_failures(monkeypatch):
 
     # Must not raise - a failure here never undoes the already-minted DOI.
     publish_guard._create_zenodo_resources(
-        pkg_dict, 'rec-1', '10.5281/zenodo.1', True, [{'filename': 'photo.jpg'}]
+        pkg_dict,
+        'rec-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        True,
+        [{'filename': 'photo.jpg'}],
     )
 
 

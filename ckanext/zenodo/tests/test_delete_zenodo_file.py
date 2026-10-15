@@ -223,6 +223,73 @@ def test_delete_published_file_publishes_a_new_version_without_it(monkeypatch):
     assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['keep.txt']
 
 
+def test_delete_published_file_resyncs_the_remaining_image_previews(monkeypatch):
+    # A remaining image file gets a new per-version content link on
+    # every republish (see image_preview.py's own docstring) - this
+    # checks that the republish after a delete resyncs it, not just the
+    # first publish (publish_guard.py's own job).
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.png')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'delete-me.txt')
+    ZenodoDepositionQuery.mark_published(
+        dataset['id'], 'rec-1', '10.5281/zenodo.1', concept_record_id='concept-1'
+    )
+    record_url = publish_guard._zenodo_record_url('concept-1', True)
+    photo_resource = factories.Resource(
+        package_id=dataset['id'],
+        name='photo.png',
+        url=f'{record_url}?preview_file=photo.png',
+        format='PNG',
+    )
+
+    monkeypatch.setattr(
+        zenodo_client,
+        'create_new_version',
+        lambda *a, **k: {'id': 'new-draft-1', 'links': {'bucket': 'https://x/bucket'}},
+    )
+    monkeypatch.setattr(
+        zenodo_client,
+        'get_deposition',
+        lambda *a, **k: {'files': [{'id': 'file-2', 'filename': 'delete-me.txt'}]},
+    )
+    monkeypatch.setattr(zenodo_client, 'delete_deposition_file', lambda *a, **k: None)
+    monkeypatch.setattr(
+        zenodo_client,
+        'publish_deposition',
+        lambda *a, **k: {
+            'id': 'rec-2',
+            'record_id': 'rec-2',
+            'doi': '10.5281/zenodo.2',
+            'files': [{'filename': 'photo.png'}],
+        },
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        delete_zenodo_file.image_preview,
+        'sync_image_preview',
+        lambda *a, **k: calls.append(a),
+    )
+
+    delete_zenodo_file._delete_published_file(dataset['id'], 'delete-me.txt')
+
+    assert len(calls) == 1
+    resource_id, fmt, content_url, user_name = calls[0]
+    assert resource_id == photo_resource['id']
+    assert fmt == 'PNG'
+    assert content_url == (
+        'https://sandbox.zenodo.org/api/records/rec-2/files/photo.png/content'
+    )
+    assert user_name
+
+
 def test_delete_published_file_leaves_everything_unchanged_if_publish_fails(
     monkeypatch,
 ):

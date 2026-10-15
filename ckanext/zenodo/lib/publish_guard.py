@@ -22,7 +22,7 @@ from ckan.lib.helpers import unified_resource_format
 from ckan.model import repo
 from ckan.plugins import toolkit
 
-from ckanext.zenodo.lib import zenodo_client, zenodo_config
+from ckanext.zenodo.lib import image_preview, zenodo_client, zenodo_config
 from ckanext.zenodo.lib.metadata_mapper import datacite_to_zenodo
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
@@ -193,7 +193,12 @@ def _publish_deposition(package_id):
     # file - see delete_zenodo_file.py).
     concept_record_id = result.get('conceptrecid') or record_id
     _create_zenodo_resources(
-        pkg_dict, concept_record_id, result.get('doi'), sandbox, result.get('files')
+        pkg_dict,
+        concept_record_id,
+        record_id,
+        result.get('doi'),
+        sandbox,
+        result.get('files'),
     )
 
     ZenodoDepositionQuery.mark_published(
@@ -255,7 +260,9 @@ def _format_for_filename(filename):
     return unified_resource_format(filename.rsplit('.', 1)[-1])
 
 
-def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
+def _create_zenodo_resources(
+    pkg_dict, concept_record_id, record_id, doi, sandbox, files
+):
     """Creates one genuine CKAN Link resource per file actually uploaded
     to Zenodo - confirmed, via actual testing, to be a better fit than a
     bespoke display-only panel outside the resource list: a real
@@ -263,6 +270,13 @@ def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
     template override needed, and - more importantly - is picked up by
     every feature that already iterates pkg.resources (DCAT/schema.org/
     Croissant export), which a panel bolted on elsewhere never would be.
+
+    `record_id` (this specific version's own id, unlike
+    `concept_record_id`) is only used to seed each image file's own
+    Image-view preview (see image_preview.py) - that preview isn't
+    stable across a later version the way the resource's own `url` is,
+    so it's resynced on every (re)publish rather than stored anywhere
+    permanent.
 
     One resource per file (not one generic "Archived on Zenodo" entry
     for the whole deposition) so each shows its own real filename in
@@ -330,8 +344,9 @@ def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
         filename = (file_entry.get('filename') or '').strip()
         if not filename or filename in existing_names:
             continue
+        resource_format = _format_for_filename(filename)
         try:
-            toolkit.get_action('resource_create')(
+            resource = toolkit.get_action('resource_create')(
                 {'ignore_auth': True, 'user': site_user['name']},
                 {
                     'package_id': pkg_dict['id'],
@@ -340,7 +355,7 @@ def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
                     ),
                     'name': filename,
                     'description': description,
-                    'format': _format_for_filename(filename),
+                    'format': resource_format,
                 },
             )
         except Exception:
@@ -353,6 +368,14 @@ def _create_zenodo_resources(pkg_dict, concept_record_id, doi, sandbox, files):
                 pkg_dict.get('id'),
                 concept_record_id,
             )
+            continue
+
+        image_preview.sync_image_preview(
+            resource['id'],
+            resource_format,
+            image_preview.zenodo_file_content_url(record_id, sandbox, filename),
+            site_user['name'],
+        )
 
 
 def accept_pending_community_inclusion(record_id, token, sandbox, package_id):
