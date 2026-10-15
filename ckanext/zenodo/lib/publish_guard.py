@@ -317,15 +317,28 @@ def accept_pending_community_inclusion(record_id, token, sandbox, package_id):
     it does NOT associate the record with the community by itself, even
     for the account that owns that community. This accepts that one
     request so the record actually ends up listed under the community,
-    matching what the plan's description always promised. Best-effort and
-    never fatal: the DOI is already minted by the time this runs, and a
-    missed/failed acceptance here just means the record is a (findable,
-    already-published) orphan with respect to the community until
-    accepted manually or on a later retry - not a reason to roll anything
-    back."""
+    matching what the plan's description always promised.
+
+    Explicitly (re-)submits the inclusion request first (see
+    zenodo_client.request_community_inclusion's own docstring) rather
+    than assuming metadata.communities already created one - confirmed
+    empirically that it only does so for a brand new deposition's
+    *first* publish; a later version's publish (see
+    lib/delete_zenodo_file.py) silently created no request at all,
+    which would otherwise drop the community association for every
+    version after the first.
+
+    Best-effort and never fatal: the DOI is already minted by the time
+    this runs, and a missed/failed acceptance here just means the
+    record is a (findable, already-published) orphan with respect to
+    the community until accepted manually or on a later retry - not a
+    reason to roll anything back."""
     if not record_id:
         return
     try:
+        zenodo_client.request_community_inclusion(
+            record_id, zenodo_config.community_identifier(), token, sandbox=sandbox
+        )
         requests_page = zenodo_client.list_record_requests(
             record_id, token, sandbox=sandbox
         )

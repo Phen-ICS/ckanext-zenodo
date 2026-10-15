@@ -205,6 +205,9 @@ def test_delete_published_file_publishes_a_new_version_without_it(monkeypatch):
         },
     )
     monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
+    )
+    monkeypatch.setattr(
         zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
     )
 

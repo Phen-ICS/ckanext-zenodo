@@ -274,3 +274,47 @@ def test_delete_deposition_file_hits_the_files_endpoint(monkeypatch):
 
     assert captured['method'] == 'DELETE'
     assert captured['url'].endswith('/deposit/depositions/42/files/file-id-1')
+
+
+def test_request_community_inclusion_hits_the_communities_endpoint(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: (
+            captured.update(method=method, url=url, **k) or {}
+        ),
+    )
+
+    zenodo_client.request_community_inclusion(42, 'fair3r', 'tok', sandbox=True)
+
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/records/42/communities')
+    assert captured['json'] == {'communities': [{'id': 'fair3r'}]}
+
+
+def test_request_community_inclusion_swallows_an_already_open_request(monkeypatch):
+    def already_open(*a, **k):
+        raise zenodo_client.ZenodoError(
+            'Zenodo returned 400: {"errors": [{"message": '
+            '"There is already an open inclusion request for this community."}]}'
+        )
+
+    monkeypatch.setattr(zenodo_client, '_request', already_open)
+
+    # Must not raise.
+    result = zenodo_client.request_community_inclusion(
+        42, 'fair3r', 'tok', sandbox=True
+    )
+
+    assert result is None
+
+
+def test_request_community_inclusion_reraises_other_errors(monkeypatch):
+    def other_error(*a, **k):
+        raise zenodo_client.ZenodoError('Zenodo returned 500: boom')
+
+    monkeypatch.setattr(zenodo_client, '_request', other_error)
+
+    with pytest.raises(zenodo_client.ZenodoError):
+        zenodo_client.request_community_inclusion(42, 'fair3r', 'tok', sandbox=True)

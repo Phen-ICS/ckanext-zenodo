@@ -164,6 +164,35 @@ def accept_request(request_id, access_token, sandbox=False):
     return _request('POST', url, access_token, json={})
 
 
+def request_community_inclusion(
+    record_id, community_identifier, access_token, sandbox=False
+):
+    """Explicitly submits a record for inclusion in a community via the
+    dedicated endpoint, rather than relying on metadata.communities at
+    publish time to trigger it as a side effect - confirmed empirically
+    that the latter only does so for a brand new deposition's *first*
+    publish; publishing a *new version* with metadata.communities
+    merely copied over from the original (see create_new_version above)
+    created no request at all, silently dropping the community
+    association for every version after the first. Safe to call even
+    when a request already exists for this exact record+community -
+    Zenodo's own 400 for that case is swallowed as a harmless no-op,
+    same idea as publish_deposition's own already-published
+    tolerance."""
+    url = f'{base_url(sandbox)}/records/{record_id}/communities'
+    try:
+        return _request(
+            'POST',
+            url,
+            access_token,
+            json={'communities': [{'id': community_identifier}]},
+        )
+    except ZenodoError as e:
+        if 'already an open inclusion request' in str(e):
+            return None
+        raise
+
+
 # A published Zenodo record is immutable by design (DOIs are meant to be
 # permanent) - there is no "delete a file from a published record"
 # endpoint. Removing a file from an already-published deposition instead
