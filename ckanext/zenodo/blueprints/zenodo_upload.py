@@ -151,7 +151,8 @@ def upload(package_name):
             )
         except zenodo_client.ZenodoError:
             log.exception(
-                'Failed to create/fetch Zenodo deposition for package %s', pkg_dict['id']
+                'Failed to create/fetch Zenodo deposition for package %s',
+                pkg_dict['id'],
             )
             return _error('Could not reach Zenodo - try again shortly', 502)
 
@@ -204,7 +205,9 @@ def upload_capacity():
     if current_user.is_anonymous:
         return _error('Login required', 403)
 
-    return jsonify({'success': True, 'result': {'available_bytes': disk_guard.available_bytes()}})
+    return jsonify(
+        {'success': True, 'result': {'available_bytes': disk_guard.available_bytes()}}
+    )
 
 
 @zenodo_upload.route('/zenodo/upload/<package_name>/<filename>', methods=['DELETE'])

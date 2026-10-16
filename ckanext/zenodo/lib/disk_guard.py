@@ -65,7 +65,9 @@ def available_bytes():
     only, for display (the /zenodo/upload-capacity endpoint) - reserve()
     below is the real, authoritative check, done atomically at accept
     time, not from this same read."""
-    free = disk_free_bytes() - zenodo_config.disk_safety_margin_bytes() - reserved_bytes()
+    free = (
+        disk_free_bytes() - zenodo_config.disk_safety_margin_bytes() - reserved_bytes()
+    )
     return max(0, free)
 
 

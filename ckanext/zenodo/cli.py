@@ -52,7 +52,9 @@ def clear(yes):
         f'About to clear a reservation of {reserved} bytes '
         f'({reserved / 1024**3:.2f} GB).'
     )
-    if not yes and not click.confirm('Are you sure no upload is genuinely in progress?'):
+    if not yes and not click.confirm(
+        'Are you sure no upload is genuinely in progress?'
+    ):
         click.echo('Aborted.')
         return
     disk_guard.release(reserved)
