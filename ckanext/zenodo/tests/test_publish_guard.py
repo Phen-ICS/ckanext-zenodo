@@ -238,6 +238,67 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
     assert '10.5281/zenodo.1' in resources[0]['description']
 
 
+def test_publish_deposition_marks_published_before_creating_resources(monkeypatch):
+    # Regression test for a real bug found via live testing: xloader's
+    # own IXloader.can_upload hook (xloader_guard.py) fires
+    # *synchronously* inside resource_create below, and decides "is
+    # this one of ours?" by reading this row's own concept_record_id
+    # back from the DB. mark_published used to run *after*
+    # _create_zenodo_resources, so concept_record_id was still None at
+    # the exact moment xloader checked on a dataset's very first
+    # publish - can_upload saw nothing to recognize and let xloader try
+    # (and fail) to load the Zenodo landing page as CSV data. Confirmed
+    # directly against the real DEV container: a fresh "test (Copie
+    # N)" first publish reliably reproduced this, while a *second*
+    # publish of an already-published dataset never did (concept_record_id
+    # was already set by its own first publish, masking the bug) -
+    # this test targets the first-publish case specifically.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    monkeypatch.setattr(zenodo_client, 'update_deposition_metadata', lambda *a, **k: {})
+    monkeypatch.setattr(
+        zenodo_client,
+        'publish_deposition',
+        lambda *a, **k: {
+            'id': 'rec-1',
+            'conceptrecid': 'concept-1',
+            'doi': '10.5281/zenodo.1',
+            'files': [{'filename': 'results.csv'}],
+        },
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
+    )
+
+    seen_concept_record_id = {}
+    real_get_action = toolkit.get_action
+
+    def spying_get_action(name):
+        action = real_get_action(name)
+        if name != 'resource_create':
+            return action
+
+        def _spy(context, data_dict, **kw):
+            record = ZenodoDepositionQuery.read_package(dataset['id'])
+            seen_concept_record_id['value'] = (
+                record.concept_record_id if record else None
+            )
+            return action(context, data_dict, **kw)
+
+        return _spy
+
+    monkeypatch.setattr(publish_guard.toolkit, 'get_action', spying_get_action)
+
+    publish_guard._publish_deposition(dataset['id'])
+
+    assert seen_concept_record_id['value'] == 'concept-1'
+
+
 def test_publish_deposition_resource_url_uses_the_concept_record(monkeypatch):
     # Not the version's own record id - the concept record's own url is
     # what stays correct forever across later versions (see

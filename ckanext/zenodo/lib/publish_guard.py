@@ -192,6 +192,24 @@ def _publish_deposition(package_id):
     # all when a later version is published (e.g. after deleting a
     # file - see delete_zenodo_file.py).
     concept_record_id = result.get('conceptrecid') or record_id
+    # Deliberately *before* _create_zenodo_resources, not after - found
+    # by real testing: resource_create below synchronously fires
+    # xloader's own IXloader.can_upload hook (see xloader_guard.py),
+    # which decides "is this one of ours?" by reading this row's own
+    # concept_record_id back from the DB. Creating the resource first
+    # and marking this published second left concept_record_id still
+    # unset (None) at the exact moment xloader checked - can_upload saw
+    # nothing to recognize and let xloader try to load the Zenodo
+    # landing page as CSV data, the exact bug this hook exists to
+    # prevent. mark_published only flushes (no commit - see its own
+    # update_package), but that's enough: resource_create below runs in
+    # this same session, so it already sees this write.
+    ZenodoDepositionQuery.mark_published(
+        package_id,
+        result.get('id'),
+        result.get('doi'),
+        concept_record_id=concept_record_id,
+    )
     _create_zenodo_resources(
         pkg_dict,
         concept_record_id,
@@ -199,13 +217,6 @@ def _publish_deposition(package_id):
         result.get('doi'),
         sandbox,
         result.get('files'),
-    )
-
-    ZenodoDepositionQuery.mark_published(
-        package_id,
-        result.get('id'),
-        result.get('doi'),
-        concept_record_id=concept_record_id,
     )
     # A real flash_success() has nothing to attach to by now (this is a
     # deferred job, not the request that enqueued it) - see
