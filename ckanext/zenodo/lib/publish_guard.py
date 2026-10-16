@@ -22,7 +22,7 @@ from ckan.lib.helpers import unified_resource_format
 from ckan.model import repo
 from ckan.plugins import toolkit
 
-from ckanext.zenodo.lib import image_preview, zenodo_client, zenodo_config
+from ckanext.zenodo.lib import media_preview, zenodo_client, zenodo_config
 from ckanext.zenodo.lib.metadata_mapper import datacite_to_zenodo
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
@@ -272,11 +272,11 @@ def _create_zenodo_resources(
     Croissant export), which a panel bolted on elsewhere never would be.
 
     `record_id` (this specific version's own id, unlike
-    `concept_record_id`) is only used to seed each image file's own
-    Image-view preview (see image_preview.py) - that preview isn't
-    stable across a later version the way the resource's own `url` is,
-    so it's resynced on every (re)publish rather than stored anywhere
-    permanent.
+    `concept_record_id`) is only used to seed each file's own
+    Image/Audio/Video/PDF preview (see media_preview.py) - that preview
+    isn't stable across a later version the way the resource's own
+    `url` is, so it's resynced on every (re)publish rather than stored
+    anywhere permanent.
 
     One resource per file (not one generic "Archived on Zenodo" entry
     for the whole deposition) so each shows its own real filename in
@@ -370,10 +370,10 @@ def _create_zenodo_resources(
             )
             continue
 
-        image_preview.sync_image_preview(
+        media_preview.sync_media_preview(
             resource['id'],
             resource_format,
-            image_preview.zenodo_file_content_url(record_id, sandbox, filename),
+            media_preview.zenodo_file_content_url(record_id, sandbox, filename),
             site_user['name'],
         )
 

@@ -225,7 +225,7 @@ def test_delete_published_file_publishes_a_new_version_without_it(monkeypatch):
 
 def test_delete_published_file_resyncs_the_remaining_image_previews(monkeypatch):
     # A remaining image file gets a new per-version content link on
-    # every republish (see image_preview.py's own docstring) - this
+    # every republish (see media_preview.py's own docstring) - this
     # checks that the republish after a delete resyncs it, not just the
     # first publish (publish_guard.py's own job).
     dataset = factories.Dataset()
@@ -273,8 +273,8 @@ def test_delete_published_file_resyncs_the_remaining_image_previews(monkeypatch)
 
     calls = []
     monkeypatch.setattr(
-        delete_zenodo_file.image_preview,
-        'sync_image_preview',
+        delete_zenodo_file.media_preview,
+        'sync_media_preview',
         lambda *a, **k: calls.append(a),
     )
 
