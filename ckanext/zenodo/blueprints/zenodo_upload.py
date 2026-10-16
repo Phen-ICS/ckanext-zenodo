@@ -197,17 +197,22 @@ def upload(package_name):
 
 @zenodo_upload.route('/zenodo/upload-capacity', methods=['GET'])
 def upload_capacity():
-    """How many bytes could be accepted right now, for the upload form's
-    live capacity badge (resource-upload.js). Advisory only - available
-    space can change between this call and the user's actual upload, so
-    the real, authoritative check is still disk_guard.reserve() in
-    upload() above; this endpoint never reserves anything itself."""
+    """How large a file could actually be accepted right now, for the
+    upload form's live capacity badge (resource-upload.js). Capped by
+    max_file_size_bytes() - disk_guard.available_bytes() alone is raw
+    disk headroom, which on a dev machine with hundreds of GB free would
+    otherwise advertise far more than this plugin will ever actually
+    accept (it enforces that same cap itself in upload() above,
+    regardless of how much disk is free). Advisory only either way -
+    available space can change between this call and the user's actual
+    upload, so the real, authoritative check is still
+    disk_guard.reserve() in upload() above; this endpoint never reserves
+    anything itself."""
     if current_user.is_anonymous:
         return _error('Login required', 403)
 
-    return jsonify(
-        {'success': True, 'result': {'available_bytes': disk_guard.available_bytes()}}
-    )
+    available = min(disk_guard.available_bytes(), zenodo_config.max_file_size_bytes())
+    return jsonify({'success': True, 'result': {'available_bytes': available}})
 
 
 @zenodo_upload.route('/zenodo/upload/<package_name>/<filename>', methods=['DELETE'])

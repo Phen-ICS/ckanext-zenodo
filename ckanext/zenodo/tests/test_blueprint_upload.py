@@ -268,8 +268,41 @@ def test_upload_capacity_reflects_margin_and_reservations(app, fake_disk_free):
     )
 
     assert response.status_code == 200
-    # 20 GB free - 5 GB default margin = 15 GB, nothing reserved yet.
-    assert response.json['result']['available_bytes'] == 15 * 1024**3
+    # 20 GB free - 5 GB default margin = 15 GB of disk headroom, but
+    # capped by the default 10 GB max_file_size_bytes - a bigger file
+    # would be rejected by upload() itself regardless of disk space.
+    assert response.json['result']['available_bytes'] == 10 * 1024**3
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.max_file_size_bytes', str(2 * 1024**3))
+def test_upload_capacity_is_not_capped_below_a_tighter_max_file_size(
+    app, fake_disk_free
+):
+    user = factories.SysadminWithToken()
+    fake_disk_free['bytes'] = 20 * 1024**3
+
+    response = app.get(
+        '/zenodo/upload-capacity', headers={'Authorization': user['token']}
+    )
+
+    # 20 GB free - 5 GB margin = 15 GB of disk headroom, but max_file_size_bytes
+    # is configured tighter here (2 GB) - that's the binding constraint.
+    assert response.json['result']['available_bytes'] == 2 * 1024**3
+
+
+def test_upload_capacity_reflects_disk_pressure_below_max_file_size(
+    app, fake_disk_free
+):
+    user = factories.SysadminWithToken()
+    fake_disk_free['bytes'] = 6 * 1024**3  # less than the margin + default cap
+
+    response = app.get(
+        '/zenodo/upload-capacity', headers={'Authorization': user['token']}
+    )
+
+    # 6 GB free - 5 GB margin = 1 GB - disk is the binding constraint here,
+    # well below the default 10 GB max_file_size_bytes.
+    assert response.json['result']['available_bytes'] == 1 * 1024**3
 
 
 def test_zenodo_error_returns_502(app, monkeypatch):
