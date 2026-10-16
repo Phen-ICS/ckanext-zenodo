@@ -10,7 +10,7 @@ import pytest
 from ckan.tests import factories
 
 from ckanext.zenodo.blueprints import zenodo_upload as blueprint_module
-from ckanext.zenodo.lib import rate_limit, zenodo_client
+from ckanext.zenodo.lib import disk_guard, rate_limit, zenodo_client
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
 pytestmark = pytest.mark.usefixtures('clean_db', 'zenodo_tables')
@@ -18,8 +18,11 @@ pytestmark = pytest.mark.usefixtures('clean_db', 'zenodo_tables')
 
 class FakeRedis:
     """Minimal in-memory stand-in for the handful of Redis calls
-    rate_limit.py makes - avoids any real Redis state leaking between
-    tests (and avoids depending on Redis being reachable at all here)."""
+    rate_limit.py and disk_guard.py make - avoids any real Redis state
+    leaking between tests (and avoids depending on Redis being reachable
+    at all here). Shared between both modules (same store) so a test
+    that exercises the real upload() view sees one consistent counter
+    set, same as in production where both read the same Redis."""
 
     def __init__(self):
         self.store = {}
@@ -30,6 +33,10 @@ class FakeRedis:
 
     def incrby(self, key, amount):
         self.store[key] = self.store.get(key, 0) + amount
+        return self.store[key]
+
+    def decrby(self, key, amount):
+        self.store[key] = self.store.get(key, 0) - amount
         return self.store[key]
 
     def expire(self, key, seconds):
@@ -44,7 +51,18 @@ class FakeRedis:
 def fake_redis(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr(rate_limit, 'connect_to_redis', lambda: fake)
+    monkeypatch.setattr(disk_guard, 'connect_to_redis', lambda: fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def fake_disk_free(monkeypatch):
+    """Deterministic, generous free space by default - independent of
+    whatever's actually free on the machine running the tests. A test
+    that cares about the disk-full path overrides this directly."""
+    free = {'bytes': 20 * 1024**3}  # 20 GB
+    monkeypatch.setattr(disk_guard, 'disk_free_bytes', lambda: free['bytes'])
+    return free
 
 
 @pytest.fixture(autouse=True)
@@ -208,6 +226,50 @@ def test_byte_volume_rate_limit_is_enforced(app):
     response = _upload(app, dataset['name'], 'b.zip', b'x' * 10, token=user['token'])
 
     assert response.status_code == 429
+
+
+def test_upload_rejected_when_not_enough_disk_space(app, fake_disk_free):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+
+    fake_disk_free['bytes'] = 1024  # 1 KB free - nothing fits
+
+    response = _upload(app, dataset['name'], 'a.zip', b'x' * 10, token=user['token'])
+
+    assert response.status_code == 507
+
+
+def test_disk_space_is_released_after_a_rejected_upload(app, fake_disk_free):
+    """A file too big/wrong-format for CKAN storage but still rejected
+    for another reason (e.g. by the force-Zenodo gate) must not leave
+    its disk reservation stuck - the next upload needs that room back."""
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+
+    _upload(app, dataset['name'], 'empty.zip', b'', token=user['token'])
+
+    assert disk_guard.reserved_bytes() == 0
+
+
+def test_upload_capacity_requires_login(app):
+    response = app.get('/zenodo/upload-capacity')
+
+    assert response.status_code == 403
+
+
+def test_upload_capacity_reflects_margin_and_reservations(app, fake_disk_free):
+    user = factories.SysadminWithToken()
+    fake_disk_free['bytes'] = 20 * 1024**3
+
+    response = app.get(
+        '/zenodo/upload-capacity', headers={'Authorization': user['token']}
+    )
+
+    assert response.status_code == 200
+    # 20 GB free - 5 GB default margin = 15 GB, nothing reserved yet.
+    assert response.json['result']['available_bytes'] == 15 * 1024**3
 
 
 def test_zenodo_error_returns_502(app, monkeypatch):

@@ -19,7 +19,11 @@ size/format decision for anything):
 2. Redis-backed rate limits (request count AND byte volume - see
    lib/rate_limit.py for why both matter), checked before accepting any
    of the file's bytes.
-3. The file's real size/format re-derived server-side. Only a file that's
+3. Redis-backed disk-space reservation (lib/disk_guard.py) for the
+   declared body size, checked and reserved before the body is ever
+   read - rate_limit.py's budgets are per-user and don't stop several
+   different users from exhausting the server's disk at the same time.
+4. The file's real size/format re-derived server-side. Only a file that's
    genuinely too big or an unreadable format for CKAN storage is
    accepted here, unless the user explicitly ticked "force Zenodo".
 """
@@ -33,6 +37,7 @@ from flask import Blueprint, jsonify, request
 
 from ckanext.zenodo.lib import (
     delete_zenodo_file,
+    disk_guard,
     rate_limit,
     zenodo_client,
     zenodo_config,
@@ -89,81 +94,117 @@ def upload(package_name):
     except rate_limit.RateLimitExceeded as e:
         return _error(str(e), 429)
 
-    uploaded = request.files.get('upload')
-    if uploaded is None or not uploaded.filename:
-        return _error('No file provided')
+    # Reserve disk headroom for the declared body size *before* touching
+    # request.files just below - that first access is what makes
+    # Werkzeug spool the whole multipart body to local disk (see
+    # disk_guard.py's own docstring), so this is the last point where
+    # rejecting outright still avoids writing anything at all. The
+    # browser always sets Content-Length for a FormData body (it's never
+    # chunked for a plain XHR.send()), so this is the real upcoming size,
+    # not an estimate.
+    declared_size = request.content_length or 0
+    if declared_size <= 0:
+        return _error('Missing or invalid upload size')
+    try:
+        reserved = disk_guard.reserve(declared_size)
+    except disk_guard.DiskSpaceExceeded as e:
+        return _error(str(e), 507)
 
-    forced = toolkit.asbool(request.form.get('force_zenodo', False))
+    try:
+        uploaded = request.files.get('upload')
+        if uploaded is None or not uploaded.filename:
+            return _error('No file provided')
 
-    size = _file_size(uploaded)
-    if size <= 0:
-        return _error('Empty file')
-    if size > zenodo_config.max_file_size_bytes():
-        return _error('File too large')
+        forced = toolkit.asbool(request.form.get('force_zenodo', False))
 
-    if not forced:
-        fits_in_ckan = size <= zenodo_config.ckan_max_resource_size_bytes()
-        readable = _is_xloader_readable(uploaded.filename, uploaded.mimetype)
-        if fits_in_ckan and readable:
-            return _error(
-                'This file is small enough and a readable format for '
-                'CKAN storage - use the normal upload instead, or tick '
-                '"force Zenodo" if you want it there anyway.'
+        size = _file_size(uploaded)
+        if size <= 0:
+            return _error('Empty file')
+        if size > zenodo_config.max_file_size_bytes():
+            return _error('File too large')
+
+        if not forced:
+            fits_in_ckan = size <= zenodo_config.ckan_max_resource_size_bytes()
+            readable = _is_xloader_readable(uploaded.filename, uploaded.mimetype)
+            if fits_in_ckan and readable:
+                return _error(
+                    'This file is small enough and a readable format for '
+                    'CKAN storage - use the normal upload instead, or tick '
+                    '"force Zenodo" if you want it there anyway.'
+                )
+
+        try:
+            rate_limit.add_bytes(user_id, size, zenodo_config.max_bytes_per_hour())
+        except rate_limit.RateLimitExceeded as e:
+            return _error(str(e), 429)
+
+        sandbox = zenodo_config.sandbox_mode()
+        token = zenodo_config.access_token(sandbox)
+
+        def create_deposition_fn():
+            deposition = zenodo_client.create_deposition(token, sandbox=sandbox)
+            return deposition['id'], deposition['links']['bucket']
+
+        try:
+            deposition = ZenodoDepositionQuery.get_or_create_open_deposition(
+                pkg_dict['id'], create_deposition_fn, is_sandbox=sandbox
             )
+        except zenodo_client.ZenodoError:
+            log.exception(
+                'Failed to create/fetch Zenodo deposition for package %s', pkg_dict['id']
+            )
+            return _error('Could not reach Zenodo - try again shortly', 502)
 
-    try:
-        rate_limit.add_bytes(user_id, size, zenodo_config.max_bytes_per_hour())
-    except rate_limit.RateLimitExceeded as e:
-        return _error(str(e), 429)
+        try:
+            zenodo_client.upload_file_to_bucket(
+                deposition.bucket_url, uploaded.filename, uploaded.stream, token
+            )
+        except zenodo_client.ZenodoError:
+            log.exception(
+                'Zenodo upload failed for package %s, file %s',
+                pkg_dict['id'],
+                uploaded.filename,
+            )
+            return _error('Upload to Zenodo failed - try again shortly', 502)
 
-    sandbox = zenodo_config.sandbox_mode()
-    token = zenodo_config.access_token(sandbox)
+        ZenodoDepositionQuery.add_file(pkg_dict['id'], uploaded.filename)
+        # This is a raw Flask view, not a CKAN action - nothing else commits
+        # for us (a CKAN action like package_create/resource_create commits
+        # internally as part of its own implementation; ZenodoDepositionQuery
+        # only flushes, matching DOIQuery's own pattern, which works for doi
+        # only because every call site runs inside *some* action's own
+        # request-response cycle). Confirmed directly: without this, a
+        # deposition row created in one request was invisible to the next.
+        repo.commit_and_remove()
 
-    def create_deposition_fn():
-        deposition = zenodo_client.create_deposition(token, sandbox=sandbox)
-        return deposition['id'], deposition['links']['bucket']
-
-    try:
-        deposition = ZenodoDepositionQuery.get_or_create_open_deposition(
-            pkg_dict['id'], create_deposition_fn, is_sandbox=sandbox
+        return jsonify(
+            {
+                'success': True,
+                'result': {
+                    'filename': uploaded.filename,
+                    'zenodo_deposition_id': deposition.zenodo_deposition_id,
+                },
+            }
         )
-    except zenodo_client.ZenodoError:
-        log.exception(
-            'Failed to create/fetch Zenodo deposition for package %s', pkg_dict['id']
-        )
-        return _error('Could not reach Zenodo - try again shortly', 502)
+    finally:
+        # Always releases, success or any failure/exception above -
+        # Werkzeug has already deleted its own spooled temp file by the
+        # time a raw Flask view like this one returns, so the disk is
+        # genuinely free again at this point, not just logically so.
+        disk_guard.release(reserved)
 
-    try:
-        zenodo_client.upload_file_to_bucket(
-            deposition.bucket_url, uploaded.filename, uploaded.stream, token
-        )
-    except zenodo_client.ZenodoError:
-        log.exception(
-            'Zenodo upload failed for package %s, file %s',
-            pkg_dict['id'],
-            uploaded.filename,
-        )
-        return _error('Upload to Zenodo failed - try again shortly', 502)
 
-    ZenodoDepositionQuery.add_file(pkg_dict['id'], uploaded.filename)
-    # This is a raw Flask view, not a CKAN action - nothing else commits
-    # for us (a CKAN action like package_create/resource_create commits
-    # internally as part of its own implementation; ZenodoDepositionQuery
-    # only flushes, matching DOIQuery's own pattern, which works for doi
-    # only because every call site runs inside *some* action's own
-    # request-response cycle). Confirmed directly: without this, a
-    # deposition row created in one request was invisible to the next.
-    repo.commit_and_remove()
+@zenodo_upload.route('/zenodo/upload-capacity', methods=['GET'])
+def upload_capacity():
+    """How many bytes could be accepted right now, for the upload form's
+    live capacity badge (resource-upload.js). Advisory only - available
+    space can change between this call and the user's actual upload, so
+    the real, authoritative check is still disk_guard.reserve() in
+    upload() above; this endpoint never reserves anything itself."""
+    if current_user.is_anonymous:
+        return _error('Login required', 403)
 
-    return jsonify(
-        {
-            'success': True,
-            'result': {
-                'filename': uploaded.filename,
-                'zenodo_deposition_id': deposition.zenodo_deposition_id,
-            },
-        }
-    )
+    return jsonify({'success': True, 'result': {'available_bytes': disk_guard.available_bytes()}})
 
 
 @zenodo_upload.route('/zenodo/upload/<package_name>/<filename>', methods=['DELETE'])

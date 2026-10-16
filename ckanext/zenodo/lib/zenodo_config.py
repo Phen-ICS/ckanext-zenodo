@@ -25,6 +25,14 @@ DEFAULT_MAX_FILE_SIZE_BYTES = 10 * 1024**3  # 10 GB
 # ckan.max_resource_size).
 DEFAULT_MAX_BYTES_PER_HOUR = 20 * 1024**3  # 20 GB
 DEFAULT_COMMUNITY_IDENTIFIER = 'fair3r'
+# Kept separate from DEFAULT_MAX_FILE_SIZE_BYTES on purpose: that one caps
+# a single upload, this one is the floor disk_guard.py always leaves free
+# regardless of how many uploads are in flight (OS/CKAN/Postgres/logs
+# still need to write while uploads are happening). 5 GB is a generic
+# default sized for this plugin's own 10 GB file cap; environments with a
+# much smaller disk (see fair3r-docker-alt's validation host) should
+# override this per-environment, not raise it here.
+DEFAULT_DISK_SAFETY_MARGIN_BYTES = 5 * 1024**3  # 5 GB
 
 
 def sandbox_mode():
@@ -78,6 +86,15 @@ def max_file_size_bytes():
     )
 
 
+def disk_safety_margin_bytes():
+    return toolkit.asint(
+        toolkit.config.get(
+            'ckanext.zenodo.disk_safety_margin_bytes',
+            DEFAULT_DISK_SAFETY_MARGIN_BYTES,
+        )
+    )
+
+
 def ckan_max_resource_size_bytes():
     """CKAN's own cap on CKAN-stored resources (ckan.max_resource_size,
     in MB) - the routing threshold: bigger than this and a file has
@@ -104,4 +121,8 @@ def routing_config_dict():
     return {
         'max_resource_size_bytes': ckan_max_resource_size_bytes(),
         'xloader_formats': xloader_formats(),
+        # Lets the client-side capacity badge (resource-upload.js) judge
+        # "available space" against what a single file is actually
+        # allowed to be, not just show a bare number.
+        'max_file_size_bytes': max_file_size_bytes(),
     }

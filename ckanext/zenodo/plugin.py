@@ -3,6 +3,7 @@ from ckan.plugins import toolkit
 
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
+from ckanext.zenodo.cli import get_commands as get_zenodo_commands
 from ckanext.zenodo.lib import xloader_guard
 from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_auth
 from ckanext.zenodo.lib.delete_zenodo_file import maybe_delete_published_file
@@ -34,6 +35,7 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IBlueprint)
+    plugins.implements(plugins.IClick)
     plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IResourceController, inherit=True)
     plugins.implements(plugins.ITemplateHelpers)
@@ -71,6 +73,11 @@ class ZenodoPlugin(plugins.SingletonPlugin):
 
     def get_blueprint(self):
         return [zenodo_upload]
+
+    # IClick
+
+    def get_commands(self):
+        return get_zenodo_commands()
 
     # ITemplateHelpers
 

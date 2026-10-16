@@ -9,12 +9,14 @@ from ckanext.zenodo.lib import zenodo_config
 
 @pytest.mark.ckan_config('ckan.max_resource_size', '5')
 @pytest.mark.ckan_config('ckanext.xloader.formats', 'csv application/csv')
+@pytest.mark.ckan_config('ckanext.zenodo.max_file_size_bytes', str(2 * 1024**3))
 def test_routing_config_dict_reflects_config():
     config = zenodo_config.routing_config_dict()
 
     assert config == {
         'max_resource_size_bytes': 5 * 1024 * 1024,
         'xloader_formats': ['csv', 'application/csv'],
+        'max_file_size_bytes': 2 * 1024**3,
     }
 
 
@@ -40,3 +42,12 @@ def test_access_token_sandbox_reads_test_ini_value():
 
 def test_community_identifier_default():
     assert zenodo_config.community_identifier() == 'fair3r'
+
+
+def test_disk_safety_margin_bytes_default():
+    assert zenodo_config.disk_safety_margin_bytes() == 5 * 1024**3
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.disk_safety_margin_bytes', str(1024**3))
+def test_disk_safety_margin_bytes_can_be_overridden():
+    assert zenodo_config.disk_safety_margin_bytes() == 1024**3
