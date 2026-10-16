@@ -415,6 +415,51 @@ def test_create_zenodo_resources_idempotent_by_name():
     assert len(pkg_dict['resources']) == 1
 
 
+def test_create_zenodo_resources_resyncs_the_preview_of_an_existing_resource():
+    # A later republish (e.g. a file added to or removed from an
+    # already-published deposition) mints a new record_id for every
+    # file, including ones that already have a resource from an
+    # earlier publish - their own media preview (tied to that specific
+    # record_id, see media_preview.py) must still be kept fresh, even
+    # though no new resource is created for them.
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    files = [{'filename': 'photo.jpg'}]
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
+    )
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    resource_id = pkg_dict['resources'][0]['id']
+    views = toolkit.get_action('resource_view_list')(
+        {'ignore_auth': True}, {'id': resource_id}
+    )
+    assert views[0]['image_url'] == (
+        'https://sandbox.zenodo.org/api/records/rec-1/files/photo.jpg/content'
+    )
+
+    # Same concept record, but a *new* record_id - as happens on a real
+    # republish.
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-2', '10.5281/zenodo.1', True, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+    views = toolkit.get_action('resource_view_list')(
+        {'ignore_auth': True}, {'id': resource_id}
+    )
+    assert views[0]['image_url'] == (
+        'https://sandbox.zenodo.org/api/records/rec-2/files/photo.jpg/content'
+    )
+
+
 def test_create_zenodo_resources_noop_without_a_record_id():
     dataset = factories.Dataset()
     pkg_dict = toolkit.get_action('package_show')(

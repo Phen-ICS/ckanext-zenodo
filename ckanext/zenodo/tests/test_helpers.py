@@ -2,6 +2,7 @@
 --ckan-ini=/plugins/ckanext-zenodo/test.ini required (conftest.py guard)."""
 
 import pytest
+from ckan.plugins import toolkit
 from ckan.tests import factories
 
 from ckanext.zenodo.lib.helpers import (
@@ -53,6 +54,41 @@ def test_unpublished_deposition_on_a_private_dataset_is_waiting_on_visibility():
         'waiting_for_public': True,
         'filenames': ['photo.jpg', 'notes.txt'],
     }
+
+
+def test_unpublished_deposition_excludes_filenames_that_already_have_a_resource():
+    # A file added to (or removed from) an already-published deposition
+    # flips it back to unpublished while it's being republished (see
+    # zenodo_upload.py's _bucket_for_upload) - at that point, some of
+    # its tracked filenames already have a real CKAN resource from the
+    # *earlier* publish. Only the genuinely new one should show here;
+    # the old one is already in the normal resource list.
+    dataset = factories.Dataset()
+    resource = factories.Resource(package_id=dataset['id'], name='photo.jpg')
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'new-file.txt')
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert resource['name'] == 'photo.jpg'
+    assert zenodo_pending_deposition_for_package(pkg_dict) == {
+        'waiting_for_public': False,
+        'filenames': ['new-file.txt'],
+    }
+
+
+def test_unpublished_deposition_is_not_pending_once_every_file_has_a_resource():
+    dataset = factories.Dataset()
+    factories.Resource(package_id=dataset['id'], name='photo.jpg')
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert zenodo_pending_deposition_for_package(pkg_dict) is None
 
 
 def test_published_deposition_is_no_longer_pending():

@@ -109,7 +109,16 @@ def zenodo_pending_deposition_for_package(pkg_dict):
     the template picks the right message from the former, and lists the
     latter (the real files already on Zenodo, read back from the local
     row rather than a live Zenodo API call on every page render - see
-    ZenodoDepositionQuery.add_file, called by the upload blueprint)."""
+    ZenodoDepositionQuery.add_file, called by the upload blueprint).
+
+    Excludes any filename that already has a real CKAN resource: a
+    deposition can go published -> unpublished again (zenodo_upload.py's
+    own _bucket_for_upload, for a file added after the dataset's first
+    publish - see its own docstring) while some of its files already
+    have one from that earlier publish. Without this filter, every one
+    of them would show here *again*, duplicating what's already in the
+    normal resource list just below - this only ever lists the file(s)
+    that genuinely don't have one yet."""
     package_id = pkg_dict.get('id')
     if not package_id:
         return None
@@ -120,7 +129,16 @@ def zenodo_pending_deposition_for_package(pkg_dict):
     if deposition.file_count <= 0:
         return None
 
+    existing_resource_names = {r.get('name') for r in pkg_dict.get('resources') or []}
+    filenames = [
+        f
+        for f in ZenodoDepositionQuery.list_filenames(package_id)
+        if f not in existing_resource_names
+    ]
+    if not filenames:
+        return None
+
     return {
         'waiting_for_public': bool(pkg_dict.get('private')),
-        'filenames': ZenodoDepositionQuery.list_filenames(package_id),
+        'filenames': filenames,
     }

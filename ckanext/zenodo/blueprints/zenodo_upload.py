@@ -42,6 +42,7 @@ from ckanext.zenodo.lib import (
     zenodo_client,
     zenodo_config,
 )
+from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
 log = logging.getLogger(__name__)
@@ -66,6 +67,39 @@ def _is_xloader_readable(filename, mimetype):
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     mimetype = (mimetype or '').lower()
     return ext in formats or mimetype in formats
+
+
+def _bucket_for_upload(deposition, token, sandbox):
+    """Where to PUT the next file - deposition.bucket_url as-is for the
+    common case (deposition still open/unpublished, or doesn't exist yet
+    - see get_or_create_open_deposition), or a *new draft version*'s own
+    bucket if the dataset's deposition is already published.
+
+    Found by real testing: PUTting into an already-published
+    deposition's own bucket_url silently "succeeds" (Zenodo accepts the
+    write at the storage layer) but the file never appears on the
+    public record at all, since nothing re-publishes - confirmed
+    empirically (uploaded a file to an already-published deposition's
+    bucket, got a 200, but GET .../records/<id> never listed it).
+    Zenodo's own supported way to add a file after publishing is the
+    exact same new-version-and-republish dance delete_zenodo_file.py
+    already uses for removing one - confirmed empirically that
+    POST .../actions/newversion's own response already carries the new
+    draft's `links.bucket` directly usable for an upload, no extra GET
+    needed.
+
+    Returns (bucket_url, new_draft_or_None) - deliberately not persisted
+    here: the caller only writes the new draft's id/bucket (and flips
+    `published` back to False) once the upload into it has actually
+    succeeded, so a failed upload leaves the still-valid, already-
+    published deposition's own id/bucket untouched in the DB rather than
+    pointing at an abandoned draft."""
+    if not deposition.published:
+        return deposition.bucket_url, None
+    new_draft = zenodo_client.create_new_version(
+        deposition.zenodo_deposition_id, token, sandbox=sandbox
+    )
+    return new_draft['links']['bucket'], new_draft
 
 
 @zenodo_upload.route('/zenodo/upload/<package_name>', methods=['POST'])
@@ -157,8 +191,18 @@ def upload(package_name):
             return _error('Could not reach Zenodo - try again shortly', 502)
 
         try:
+            bucket_url, new_draft = _bucket_for_upload(deposition, token, sandbox)
+        except zenodo_client.ZenodoError:
+            log.exception(
+                'Failed to create a new Zenodo version for package %s - '
+                'its deposition is already published',
+                pkg_dict['id'],
+            )
+            return _error('Could not reach Zenodo - try again shortly', 502)
+
+        try:
             zenodo_client.upload_file_to_bucket(
-                deposition.bucket_url, uploaded.filename, uploaded.stream, token
+                bucket_url, uploaded.filename, uploaded.stream, token
             )
         except zenodo_client.ZenodoError:
             log.exception(
@@ -168,6 +212,20 @@ def upload(package_name):
             )
             return _error('Upload to Zenodo failed - try again shortly', 502)
 
+        if new_draft is not None:
+            # The upload above landed in a *new draft version*'s bucket,
+            # not the already-published deposition's own one - see
+            # _bucket_for_upload's own docstring. Only now, after that
+            # upload actually succeeded, point this package's row at the
+            # new draft and mark it unpublished again, so this file
+            # isn't silently lost on an abandoned draft if anything above
+            # had failed instead.
+            ZenodoDepositionQuery.update_package(
+                pkg_dict['id'],
+                zenodo_deposition_id=new_draft['id'],
+                bucket_url=bucket_url,
+                published=False,
+            )
         ZenodoDepositionQuery.add_file(pkg_dict['id'], uploaded.filename)
         # This is a raw Flask view, not a CKAN action - nothing else commits
         # for us (a CKAN action like package_create/resource_create commits
@@ -178,12 +236,28 @@ def upload(package_name):
         # deposition row created in one request was invisible to the next.
         repo.commit_and_remove()
 
+        if new_draft is not None:
+            # The dataset itself is already active + public (that's
+            # exactly why its deposition was already published) - this
+            # new draft needs its own publish to actually surface the
+            # file, which won't happen on its own the way the very first
+            # publish does (no package_update/after_dataset_update fires
+            # from this raw Flask view). Enqueues the same deferred job
+            # publish_guard.py's own hook uses - mints no second DOI
+            # (same conceptrecid, just a new version of it), re-requests
+            # community inclusion, and creates the new file's own CKAN
+            # Link resource, all through the one already-tested code
+            # path rather than duplicating any of it here.
+            maybe_publish_pending_deposition(pkg_dict)
+
         return jsonify(
             {
                 'success': True,
                 'result': {
                     'filename': uploaded.filename,
-                    'zenodo_deposition_id': deposition.zenodo_deposition_id,
+                    'zenodo_deposition_id': new_draft['id']
+                    if new_draft is not None
+                    else deposition.zenodo_deposition_id,
                 },
             }
         )

@@ -10,7 +10,7 @@ import pytest
 from ckan.tests import factories
 
 from ckanext.zenodo.blueprints import zenodo_upload as blueprint_module
-from ckanext.zenodo.lib import disk_guard, rate_limit, zenodo_client
+from ckanext.zenodo.lib import disk_guard, publish_guard, rate_limit, zenodo_client
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
 pytestmark = pytest.mark.usefixtures('clean_db', 'zenodo_tables')
@@ -200,6 +200,134 @@ def test_second_upload_reuses_existing_open_deposition(app, fake_zenodo):
     record = ZenodoDepositionQuery.read_package(dataset['id'])
     assert record.file_count == 2
     assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['a.zip', 'b.zip']
+
+
+def test_upload_to_an_already_published_dataset_creates_a_new_version(
+    app, fake_zenodo, monkeypatch
+):
+    # Found by real testing: uploading straight into an already-
+    # published deposition's own bucket silently "succeeds" but the
+    # file never appears on the public record at all. The fix routes
+    # it through Zenodo's own new-version-and-republish dance instead -
+    # see zenodo_upload._bucket_for_upload's own docstring.
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+    ZenodoDepositionQuery.create(
+        dataset['id'], 'dep-1', 'https://example.test/bucket-1'
+    )
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    ZenodoDepositionQuery.mark_published(
+        dataset['id'], 'rec-1', '10.5281/zenodo.1', concept_record_id='concept-1'
+    )
+
+    monkeypatch.setattr(
+        zenodo_client,
+        'create_new_version',
+        lambda *a, **k: {
+            'id': 'dep-2',
+            'links': {'bucket': 'https://example.test/bucket-2'},
+        },
+    )
+    enqueued = []
+    monkeypatch.setattr(
+        publish_guard.toolkit,
+        'enqueue_job',
+        lambda fn, kwargs=None, **kw: enqueued.append((fn, kwargs)),
+    )
+
+    response = _upload(
+        app, dataset['name'], 'results.csv', b'x' * 10, token=user['token'], force=True
+    )
+
+    assert response.status_code == 200
+    assert fake_zenodo['uploaded'] == [('https://example.test/bucket-2', 'results.csv')]
+
+    record = ZenodoDepositionQuery.read_package(dataset['id'])
+    assert record.zenodo_deposition_id == 'dep-2'
+    assert record.bucket_url == 'https://example.test/bucket-2'
+    assert record.published is False
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == [
+        'photo.jpg',
+        'results.csv',
+    ]
+    # The dataset is already active + public - this new draft needs its
+    # own republish to actually surface the file, which must be
+    # enqueued (never run synchronously from this request).
+    assert len(enqueued) == 1
+    assert enqueued[0][1] == {'package_id': dataset['id']}
+
+
+def test_upload_to_an_already_published_dataset_is_untouched_if_the_upload_fails(
+    app, monkeypatch
+):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+    ZenodoDepositionQuery.create(
+        dataset['id'], 'dep-1', 'https://example.test/bucket-1'
+    )
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    ZenodoDepositionQuery.mark_published(
+        dataset['id'], 'rec-1', '10.5281/zenodo.1', concept_record_id='concept-1'
+    )
+
+    monkeypatch.setattr(
+        zenodo_client,
+        'create_new_version',
+        lambda *a, **k: {
+            'id': 'dep-2',
+            'links': {'bucket': 'https://example.test/bucket-2'},
+        },
+    )
+
+    def failing_upload(*a, **k):
+        raise zenodo_client.ZenodoError('boom')
+
+    monkeypatch.setattr(zenodo_client, 'upload_file_to_bucket', failing_upload)
+
+    response = _upload(
+        app, dataset['name'], 'results.csv', b'x' * 10, token=user['token'], force=True
+    )
+
+    assert response.status_code == 502
+    # Still pointing at the original, still-valid published deposition -
+    # not left dangling on the abandoned new-version draft.
+    record = ZenodoDepositionQuery.read_package(dataset['id'])
+    assert record.zenodo_deposition_id == 'dep-1'
+    assert record.bucket_url == 'https://example.test/bucket-1'
+    assert record.published is True
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['photo.jpg']
+
+
+def test_upload_to_an_already_published_dataset_is_untouched_if_new_version_fails(
+    app, monkeypatch
+):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+    ZenodoDepositionQuery.create(
+        dataset['id'], 'dep-1', 'https://example.test/bucket-1'
+    )
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    ZenodoDepositionQuery.mark_published(
+        dataset['id'], 'rec-1', '10.5281/zenodo.1', concept_record_id='concept-1'
+    )
+
+    def failing_new_version(*a, **k):
+        raise zenodo_client.ZenodoError('boom')
+
+    monkeypatch.setattr(zenodo_client, 'create_new_version', failing_new_version)
+
+    response = _upload(
+        app, dataset['name'], 'results.csv', b'x' * 10, token=user['token'], force=True
+    )
+
+    assert response.status_code == 502
+    record = ZenodoDepositionQuery.read_package(dataset['id'])
+    assert record.zenodo_deposition_id == 'dep-1'
+    assert record.published is True
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['photo.jpg']
 
 
 @pytest.mark.ckan_config('ckanext.zenodo.max_uploads_per_hour', '2')

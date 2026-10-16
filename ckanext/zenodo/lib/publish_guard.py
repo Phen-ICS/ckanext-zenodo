@@ -298,19 +298,24 @@ def _create_zenodo_resources(
     Idempotent by (name, url-prefix) rather than a new DB column: if a
     resource for this exact filename+record already exists (e.g. this
     job was retried after a crash right after this step, on a previous
-    run), nothing new is created for it - matched by prefix, not exact
-    equality, so this also recognizes resources created by an earlier
-    version of this code that didn't yet have the per-file
-    `?preview_file=` suffix. Never fatal - the DOI is already minted by
-    the time this runs; a failure here just means the record stays
-    correctly published on Zenodo without (yet) a CKAN-side resource
-    for some or all of its files."""
+    run, or this is a later republish - e.g. a file added to or removed
+    from an already-published deposition, see zenodo_upload.py's
+    _bucket_for_upload and delete_zenodo_file.py), nothing new is
+    created for it - matched by prefix, not exact equality, so this
+    also recognizes resources created by an earlier version of this
+    code that didn't yet have the per-file `?preview_file=` suffix. Its
+    media preview (see media_preview.py) is still resynced either way,
+    since that one genuinely does need to track each publish's own
+    record_id. Never fatal - the DOI is already minted by the time this
+    runs; a failure here just means the record stays correctly
+    published on Zenodo without (yet) a CKAN-side resource for some or
+    all of its files."""
     if concept_record_id is None or not files:
         return
 
     record_url = _zenodo_record_url(concept_record_id, sandbox)
-    existing_names = {
-        r.get('name')
+    existing_resources_by_name = {
+        r.get('name'): r
         for r in pkg_dict.get('resources') or []
         if (r.get('url') or '').startswith(record_url)
     }
@@ -342,36 +347,48 @@ def _create_zenodo_resources(
 
     for file_entry in files:
         filename = (file_entry.get('filename') or '').strip()
-        if not filename or filename in existing_names:
+        if not filename:
             continue
         resource_format = _format_for_filename(filename)
-        try:
-            resource = toolkit.get_action('resource_create')(
-                {'ignore_auth': True, 'user': site_user['name']},
-                {
-                    'package_id': pkg_dict['id'],
-                    'url': _zenodo_file_preview_url(
-                        concept_record_id, sandbox, filename
-                    ),
-                    'name': filename,
-                    'description': description,
-                    'format': resource_format,
-                },
-            )
-        except Exception:
-            log.exception(
-                'publish_guard: failed to create the Zenodo Link resource '
-                'for file %r of package %s (concept record %s) - the '
-                'deposition is published, just not reflected as a CKAN '
-                'resource yet',
-                filename,
-                pkg_dict.get('id'),
-                concept_record_id,
-            )
-            continue
+        existing_resource = existing_resources_by_name.get(filename)
+        if existing_resource is None:
+            try:
+                resource = toolkit.get_action('resource_create')(
+                    {'ignore_auth': True, 'user': site_user['name']},
+                    {
+                        'package_id': pkg_dict['id'],
+                        'url': _zenodo_file_preview_url(
+                            concept_record_id, sandbox, filename
+                        ),
+                        'name': filename,
+                        'description': description,
+                        'format': resource_format,
+                    },
+                )
+            except Exception:
+                log.exception(
+                    'publish_guard: failed to create the Zenodo Link resource '
+                    'for file %r of package %s (concept record %s) - the '
+                    'deposition is published, just not reflected as a CKAN '
+                    'resource yet',
+                    filename,
+                    pkg_dict.get('id'),
+                    concept_record_id,
+                )
+                continue
+            resource_id = resource['id']
+        else:
+            # Already has a resource from an earlier publish - still
+            # resync its media preview below, since *this* publish's own
+            # record_id (a new version, e.g. after a file was added to
+            # or removed from an already-published deposition) is
+            # different from whatever the preview was last pointed at,
+            # even though the resource's own stable `url` needs no
+            # change at all (see _zenodo_record_url's own docstring).
+            resource_id = existing_resource['id']
 
         media_preview.sync_media_preview(
-            resource['id'],
+            resource_id,
             resource_format,
             media_preview.zenodo_file_content_url(record_id, sandbox, filename),
             site_user['name'],
