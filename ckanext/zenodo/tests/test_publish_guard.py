@@ -749,3 +749,38 @@ def test_existing_resource_description_follows_the_concept_doi():
     )
     assert len(pkg_dict['resources']) == 1
     assert '10.5281/zenodo.99' in pkg_dict['resources'][0]['description']
+
+
+def test_resource_size_follows_the_zenodo_file():
+    # Zenodo's legacy API reports filesize as a float (e.g. 11.0).
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'concept-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        False,
+        [{'filename': 'notes.txt', 'filesize': 11.0}],
+    )
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert pkg_dict['resources'][0]['size'] == 11
+
+    # Re-uploaded under the same name in a later version: new size.
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'concept-1',
+        'rec-2',
+        '10.5281/zenodo.1',
+        False,
+        [{'filename': 'notes.txt', 'filesize': 2048}],
+    )
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+    assert pkg_dict['resources'][0]['size'] == 2048

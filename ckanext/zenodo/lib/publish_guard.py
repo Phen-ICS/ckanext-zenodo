@@ -395,6 +395,11 @@ def _create_zenodo_resources(
         if not filename:
             continue
         resource_format = _format_for_filename(filename)
+        # A Link resource has no size of its own - without this, the
+        # dataset's DataCite metadata (ckanext-doi sums resource sizes)
+        # counted every Zenodo file as 0 bytes. Per version: a file
+        # re-uploaded under the same name replaces it with new content.
+        size = int(file_entry.get('filesize') or 0) or None
         existing_resource = existing_resources_by_name.get(filename)
         if existing_resource is None:
             try:
@@ -408,6 +413,7 @@ def _create_zenodo_resources(
                         'name': filename,
                         'description': description,
                         'format': resource_format,
+                        'size': size,
                     },
                 )
             except Exception:
@@ -433,16 +439,23 @@ def _create_zenodo_resources(
             resource_id = existing_resource['id']
             # Brings descriptions from before the concept DOI was used
             # (a version's own DOI) up to date - a no-op from then on,
-            # since the concept DOI never changes.
+            # since the concept DOI never changes. Same for the size,
+            # which only changes when the file itself was replaced.
+            changes = {}
             if existing_resource.get('description') != description:
+                changes['description'] = description
+            if size is not None and existing_resource.get('size') != size:
+                changes['size'] = size
+            if changes:
                 try:
                     toolkit.get_action('resource_patch')(
                         {'ignore_auth': True, 'user': site_user['name']},
-                        {'id': resource_id, 'description': description},
+                        {'id': resource_id, **changes},
                     )
                 except Exception:
                     log.exception(
-                        'publish_guard: failed to update the description of %s',
+                        'publish_guard: failed to update %s of %s',
+                        sorted(changes),
                         resource_id,
                     )
 
