@@ -133,6 +133,16 @@ def _submitter_display_name(pkg_dict):
     return pkg_dict.get('author') or 'a FAIR3R user'
 
 
+def _doi_resolver_url(doi):
+    """ckanext-doi's own resolver link (DataCite's test resolver in test
+    mode - test DOIs 404 on doi.org), doi.org if that isn't available."""
+    try:
+        from ckanext.doi.lib.helpers import doi_resolver_url
+    except ImportError:
+        return f'https://doi.org/{doi}'
+    return doi_resolver_url(doi)
+
+
 def _publish_deposition(package_id):
     """Runs as its own RQ job - see this module's docstring for why this
     can't just be called straight from the hook above."""
@@ -151,6 +161,7 @@ def _publish_deposition(package_id):
         return
 
     datacite_metadata = _extract_datacite_metadata(pkg_dict)
+    source_doi = pkg_dict.get('doi') if pkg_dict.get('doi_status') else None
     metadata = datacite_to_zenodo(
         datacite_metadata,
         title=pkg_dict.get('title') or pkg_dict.get('name'),
@@ -169,7 +180,8 @@ def _publish_deposition(package_id):
         # wouldn't resolve. ckanext-doi mints it synchronously in the
         # same package_update that enqueued this job, so it's there by
         # now in the normal case.
-        source_doi=pkg_dict.get('doi') if pkg_dict.get('doi_status') else None,
+        source_doi=source_doi,
+        source_doi_url=_doi_resolver_url(source_doi) if source_doi else None,
     )
 
     sandbox = deposition.is_sandbox

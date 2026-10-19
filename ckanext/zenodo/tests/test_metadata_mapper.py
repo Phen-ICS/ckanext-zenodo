@@ -368,3 +368,23 @@ def test_datacite_to_zenodo_does_not_duplicate_an_existing_source_doi():
     )
 
     assert len(result['related_identifiers']) == 1
+
+
+def test_source_doi_link_can_point_at_another_resolver():
+    # e.g. DataCite's test resolver in ckanext-doi's test mode
+    result = mm.datacite_to_zenodo(
+        {},
+        title='T',
+        submitter_display_name='Jane',
+        community_identifier='fair3r',
+        access_right='open',
+        source_doi='10.83249/abc',
+        source_doi_url='https://handle.test.datacite.org/10.83249/abc',
+    )
+
+    assert (
+        'href="https://handle.test.datacite.org/10.83249/abc"' in result['description']
+    )
+    assert result['related_identifiers'] == [
+        {'relation': 'isPartOf', 'identifier': '10.83249/abc'}
+    ]

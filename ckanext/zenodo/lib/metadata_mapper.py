@@ -319,7 +319,11 @@ def map_upload_type(types):
 # headings, bold, an unordered list, plain Unicode emoji as "icons" instead
 # of <img>/inline CSS, since the latter is confirmed stripped anyway.
 def build_zenodo_description_html(
-    datacite_metadata, submitter_display_name, tags=None, source_doi=None
+    datacite_metadata,
+    submitter_display_name,
+    tags=None,
+    source_doi=None,
+    source_doi_url=None,
 ):
     """`tags` is the dataset's own CKAN tags (package_show's `tags`
     list), not part of the DataCite dict - passed in explicitly by the
@@ -327,7 +331,8 @@ def build_zenodo_description_html(
     CKAN-only concept this module has no other way to see).
     `source_doi` is the FAIR3R dataset's own DataCite DOI (ckanext-doi),
     linked so a reader landing on Zenodo can get back to the full
-    catalogue record."""
+    catalogue record. `source_doi_url` is where that link points
+    (defaults to doi.org - see publish_guard.py for the test-mode case)."""
     submitted_on_behalf_of = (
         '<p><strong>📤 Submitted via the FAIR3R shared account on behalf of:'
         f'</strong> {submitter_display_name}</p>'
@@ -336,7 +341,8 @@ def build_zenodo_description_html(
     if source_doi:
         lines.append(
             '<p><strong>🔗 FAIR3R dataset:</strong> '
-            f'<a href="https://doi.org/{source_doi}">{source_doi}</a></p>'
+            f'<a href="{source_doi_url or f"https://doi.org/{source_doi}"}">'
+            f'{source_doi}</a></p>'
         )
 
     descriptions = datacite_metadata.get('descriptions') or []
@@ -387,6 +393,7 @@ def datacite_to_zenodo(
     tags=None,
     license_id=None,
     source_doi=None,
+    source_doi_url=None,
 ):
     """Build a Zenodo deposition metadata dict from a
     `DataCiteConverter.fdf_to_datacite()`-shaped dict plus the handful of
@@ -397,7 +404,7 @@ def datacite_to_zenodo(
     metadata = {
         'title': title,
         'description': build_zenodo_description_html(
-            datacite_metadata, submitter_display_name, tags, source_doi
+            datacite_metadata, submitter_display_name, tags, source_doi, source_doi_url
         ),
         'upload_type': map_upload_type(datacite_metadata.get('types')),
         'access_right': access_right,
