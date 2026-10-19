@@ -340,7 +340,12 @@ def _create_zenodo_resources(
 
     # Stored data, shown as-is to every visitor whatever the site's
     # language - kept language-neutral rather than English.
-    description = f'Zenodo · DOI [{doi}](https://doi.org/{doi})' if doi else 'Zenodo'
+    # Sandbox DOIs use DataCite's test prefix (10.5072), which doi.org
+    # doesn't resolve - link the sandbox record itself there instead.
+    doi_url = (
+        _zenodo_record_url(record_id, sandbox) if sandbox else f'https://doi.org/{doi}'
+    )
+    description = f'Zenodo · DOI [{doi}]({doi_url})' if doi else 'Zenodo'
     if sandbox:
         description += ' · sandbox'
 

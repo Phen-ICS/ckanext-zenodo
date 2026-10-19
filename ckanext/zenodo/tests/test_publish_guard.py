@@ -675,3 +675,35 @@ def test_hook_fires_on_a_real_draft_to_active_transition(enqueued):
     assert len(enqueued) == 1
     _fn, kwargs = enqueued[0]
     assert kwargs == {'package_id': dataset['id']}
+
+
+@pytest.mark.parametrize(
+    ('sandbox', 'expected_link'),
+    [
+        # 10.5072 is DataCite's test prefix: doi.org doesn't resolve it.
+        (True, 'https://sandbox.zenodo.org/records/rec-1'),
+        (False, 'https://doi.org/10.5281/zenodo.1'),
+    ],
+)
+def test_resource_description_links_the_doi(sandbox, expected_link):
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'concept-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        sandbox,
+        [{'filename': 'notes.txt'}],
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert (
+        f'[10.5281/zenodo.1]({expected_link})'
+        in pkg_dict['resources'][0]['description']
+    )
