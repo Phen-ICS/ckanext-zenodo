@@ -2,11 +2,14 @@
 
 {# CKAN's own list shows a plain-text extract of the description, which
    drops the DOI link of a Zenodo resource (see publish_guard.py's
-   _create_zenodo_resources) - render that one as Markdown instead so the
-   DOI stays clickable. Every other resource is left alone. #}
+   _create_zenodo_resources) - build that link here instead, opening in a
+   new tab. Every other resource is left alone. #}
 {% block resource_item_description %}
-  {% if (res.description or '').startswith('Zenodo · ') %}
-    <div class="description">{{ h.zenodo_description_html(res.description) }}</div>
+  {% set zd = h.zenodo_description_parts(res.description) %}
+  {% if zd %}
+    <div class="description">
+      <p>Zenodo · DOI <a href="{{ zd.url }}" target="_blank" rel="noopener noreferrer">{{ zd.doi }}</a>{{ zd.rest }}</p>
+    </div>
   {% else %}
     {{ super() }}
   {% endif %}

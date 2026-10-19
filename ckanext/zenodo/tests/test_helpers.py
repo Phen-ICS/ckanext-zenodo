@@ -6,6 +6,7 @@ from ckan.plugins import toolkit
 from ckan.tests import factories
 
 from ckanext.zenodo.lib.helpers import (
+    zenodo_description_parts,
     zenodo_notice_for_package,
     zenodo_pending_deposition_for_package,
 )
@@ -131,3 +132,43 @@ def test_notice_for_package_new_version_published():
     result = zenodo_notice_for_package(dataset)
 
     assert result == {'message': 'Zenodo archive updated (DOI: 10.5281/zenodo.2).'}
+
+
+@pytest.mark.parametrize(
+    'description, expected',
+    [
+        (
+            'Zenodo · DOI [10.5072/zenodo.1](https://sandbox.zenodo.org/records/1) · sandbox',
+            {
+                'doi': '10.5072/zenodo.1',
+                'url': 'https://sandbox.zenodo.org/records/1',
+                'rest': ' · sandbox',
+            },
+        ),
+        (
+            'Zenodo · DOI [10.5281/zenodo.2](https://doi.org/10.5281/zenodo.2)',
+            {
+                'doi': '10.5281/zenodo.2',
+                'url': 'https://doi.org/10.5281/zenodo.2',
+                'rest': '',
+            },
+        ),
+    ],
+)
+def test_description_parts_splits_a_zenodo_description(description, expected):
+    assert zenodo_description_parts(description) == expected
+
+
+@pytest.mark.parametrize(
+    'description',
+    [
+        None,
+        '',
+        'A plain description',
+        # User-editable: only an https:// link is ever turned into one here.
+        'Zenodo · DOI [x](javascript:alert(1))',
+        'Zenodo · DOI [x](http://example.test)',
+    ],
+)
+def test_description_parts_leaves_anything_else_to_ckan(description):
+    assert zenodo_description_parts(description) is None

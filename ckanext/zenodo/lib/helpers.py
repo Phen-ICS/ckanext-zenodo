@@ -45,9 +45,10 @@ forever, instead of once. Confirmed empirically via direct psql checks
 across several real HTTP requests before this was fixed.
 """
 
+import re
+
 from ckan.plugins import toolkit
 from flask import g, has_app_context
-from markupsafe import Markup
 
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
@@ -168,11 +169,21 @@ def zenodo_delete_impact(pkg_dict):
     return 'draft' if deposition.file_count > 0 else None
 
 
-def zenodo_description_html(description):
-    """A Zenodo resource's description (see publish_guard.py's
-    _create_zenodo_resources) rendered as Markdown, its DOI link opening
-    in a new tab - Markdown itself has no way to say target=_blank.
-    CKAN's render_markdown has already sanitized it (and adds
-    rel="noopener noreferrer")."""
-    html = str(toolkit.h.render_markdown(description))
-    return Markup(html.replace('<a href=', '<a target="_blank" href='))
+_ZENODO_DESCRIPTION = re.compile(
+    r'^Zenodo · DOI \[([^\]]+)\]\((https://[^)\s]+)\)(.*)$'
+)
+
+
+def zenodo_description_parts(description):
+    """Splits a Zenodo resource's description (see publish_guard.py's
+    _create_zenodo_resources: "Zenodo · DOI [<doi>](<url>) · sandbox")
+    into {'doi', 'url', 'rest'} for the template to build the link itself
+    - with target=_blank, which Markdown can't express - Jinja-escaped,
+    no Markup. Only an https:// URL matches: the description is editable
+    by the user, so anything else (e.g. a javascript: link typed into it)
+    falls back to CKAN's own sanitized Markdown rendering (None here)."""
+    match = _ZENODO_DESCRIPTION.match(description or '')
+    if not match:
+        return None
+    doi, url, rest = match.groups()
+    return {'doi': doi, 'url': url, 'rest': rest}

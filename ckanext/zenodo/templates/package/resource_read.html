@@ -1,14 +1,15 @@
 {% ckan_extends %}
 
 {# Same as CKAN's own resource_content, except a Zenodo resource's
-   description goes through h.zenodo_description_html so its DOI link
-   opens in a new tab. Every other resource is left alone. #}
+   description gets its DOI link built from h.zenodo_description_parts,
+   opening in a new tab. Every other resource is left alone. #}
 {% block resource_content %}
-  {% if (res.description or '').startswith('Zenodo · ') %}
+  {% set zd = h.zenodo_description_parts(res.description) %}
+  {% if zd %}
     {{ self.resource_read_title() }}
     {{ self.resource_read_url() }}
     <div class="prose notes" property="rdfs:label">
-      {{ h.zenodo_description_html(res.description) }}
+      <p>Zenodo · DOI <a href="{{ zd.url }}" target="_blank" rel="noopener noreferrer">{{ zd.doi }}</a>{{ zd.rest }}</p>
     </div>
   {% else %}
     {{ super() }}
