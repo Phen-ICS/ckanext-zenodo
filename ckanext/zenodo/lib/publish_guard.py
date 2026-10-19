@@ -221,7 +221,10 @@ def _publish_deposition(package_id):
         pkg_dict,
         concept_record_id,
         record_id,
-        result.get('doi'),
+        # The concept DOI (shared by every version, always resolves to the
+        # latest), not this version's own: a resource created at version 1
+        # must not keep showing version 1's DOI once a file is added.
+        result.get('conceptdoi') or result.get('doi'),
         sandbox,
         result.get('files'),
     )
@@ -342,8 +345,13 @@ def _create_zenodo_resources(
     # language - kept language-neutral rather than English.
     # Sandbox DOIs use DataCite's test prefix (10.5072), which doi.org
     # doesn't resolve - link the sandbox record itself there instead.
+    # `doi` is the concept DOI (see _publish_deposition): its sandbox
+    # counterpart is the concept record page, which redirects to the
+    # latest version.
     doi_url = (
-        _zenodo_record_url(record_id, sandbox) if sandbox else f'https://doi.org/{doi}'
+        _zenodo_record_url(concept_record_id, sandbox)
+        if sandbox
+        else f'https://doi.org/{doi}'
     )
     description = f'Zenodo · DOI [{doi}]({doi_url})' if doi else 'Zenodo'
     if sandbox:
@@ -411,6 +419,20 @@ def _create_zenodo_resources(
             # even though the resource's own stable `url` needs no
             # change at all (see _zenodo_record_url's own docstring).
             resource_id = existing_resource['id']
+            # Brings descriptions from before the concept DOI was used
+            # (a version's own DOI) up to date - a no-op from then on,
+            # since the concept DOI never changes.
+            if existing_resource.get('description') != description:
+                try:
+                    toolkit.get_action('resource_patch')(
+                        {'ignore_auth': True, 'user': site_user['name']},
+                        {'id': resource_id, 'description': description},
+                    )
+                except Exception:
+                    log.exception(
+                        'publish_guard: failed to update the description of %s',
+                        resource_id,
+                    )
 
         media_preview.sync_media_preview(
             resource_id,

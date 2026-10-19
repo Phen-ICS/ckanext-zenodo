@@ -681,7 +681,7 @@ def test_hook_fires_on_a_real_draft_to_active_transition(enqueued):
     ('sandbox', 'expected_link'),
     [
         # 10.5072 is DataCite's test prefix: doi.org doesn't resolve it.
-        (True, 'https://sandbox.zenodo.org/records/rec-1'),
+        (True, 'https://sandbox.zenodo.org/records/concept-1'),
         (False, 'https://doi.org/10.5281/zenodo.1'),
     ],
 )
@@ -723,3 +723,29 @@ def test_files_archive_url():
     assert publish_guard.files_archive_url(dataset['id']) == (
         'https://sandbox.zenodo.org/api/records/rec-2/files-archive'
     )
+
+
+def test_existing_resource_description_follows_the_concept_doi():
+    # A resource created by an earlier version's publish (showing that
+    # version's own DOI) is brought up to date on the next publish.
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    files = [{'filename': 'notes.txt'}]
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'concept-1', 'rec-1', '10.5281/zenodo.1', False, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'concept-1', 'rec-2', '10.5281/zenodo.99', False, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+    assert '10.5281/zenodo.99' in pkg_dict['resources'][0]['description']
