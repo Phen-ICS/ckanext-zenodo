@@ -231,3 +231,19 @@ def delete_deposition_file(deposition_id, file_id, access_token, sandbox=False):
     filename."""
     url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/files/{file_id}'
     return _request('DELETE', url, access_token)
+
+
+def delete_deposition(deposition_id, access_token, sandbox=False):
+    """Deletes a never-published deposition (draft and its files) -
+    there's no DOI yet, so nothing permanent is lost. Zenodo refuses this
+    on anything already published."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}'
+    return _request('DELETE', url, access_token)
+
+
+def discard_deposition(deposition_id, access_token, sandbox=False):
+    """Discards a pending new-version draft of an already-published
+    deposition (see create_new_version) - the published versions
+    themselves are untouched."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/actions/discard'
+    return _request('POST', url, access_token)

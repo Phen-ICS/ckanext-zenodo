@@ -4,7 +4,7 @@ from ckan.plugins import toolkit
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
 from ckanext.zenodo.cli import get_commands as get_zenodo_commands
-from ckanext.zenodo.lib import xloader_guard
+from ckanext.zenodo.lib import lifecycle_guard, xloader_guard
 from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_auth
 from ckanext.zenodo.lib.delete_zenodo_file import maybe_delete_published_file
 from ckanext.zenodo.lib.helpers import (
@@ -32,6 +32,7 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     wiring).
     """
 
+    plugins.implements(plugins.IActions)
     plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IBlueprint)
@@ -44,6 +45,14 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     # xloader_guard.py's own docstring.
     if HAS_XLOADER_INTERFACE:
         plugins.implements(IXloader, inherit=True)
+
+    # IActions
+
+    def get_actions(self):
+        return {
+            'dataset_purge': lifecycle_guard.dataset_purge,
+            'package_update': lifecycle_guard.package_update,
+        }
 
     # IAuthFunctions
 

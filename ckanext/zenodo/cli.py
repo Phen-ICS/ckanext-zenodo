@@ -59,3 +59,51 @@ def clear(yes):
         return
     disk_guard.release(reserved)
     click.echo('Cleared.')
+
+
+@zenodo.command(name='retry-pending')
+@click.option('--limit', default=10, show_default=True, help='Max datasets per run.')
+@click.option(
+    '--min-age',
+    default=30,
+    show_default=True,
+    help='Only retry depositions untouched for at least this many minutes.',
+)
+def retry_pending(limit, min_age):
+    """Re-queues the Zenodo publish of datasets that are public with files
+    still waiting - i.e. a previous publish job failed (Zenodo down, rate
+    limit after a big bulk "Make public"...). Meant for cron: one DB
+    query, only enqueues (the RQ worker does the work, one at a time),
+    capped by --limit so a run never hammers Zenodo. --min-age skips
+    publishes that are probably just still queued; a job that fails
+    again simply gets picked up by the next run."""
+    from datetime import datetime, timedelta, timezone
+
+    from ckan import model
+    from ckan.plugins import toolkit
+
+    from ckanext.zenodo.lib.publish_guard import _publish_deposition
+    from ckanext.zenodo.model.zenodo_deposition import ZenodoDeposition
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=min_age)
+    package_ids = [
+        row.package_id
+        for row in model.Session.query(ZenodoDeposition.package_id)
+        .join(model.Package, model.Package.id == ZenodoDeposition.package_id)
+        .filter(
+            ZenodoDeposition.published.is_(False),
+            ZenodoDeposition.file_count > 0,
+            ZenodoDeposition.updated < cutoff,
+            model.Package.state == 'active',
+            model.Package.private.is_(False),
+        )
+        .order_by(ZenodoDeposition.updated)
+        .limit(limit)
+    ]
+    for package_id in package_ids:
+        toolkit.enqueue_job(
+            _publish_deposition,
+            kwargs={'package_id': package_id},
+            title=f'ckanext-zenodo retry-pending: publish {package_id}',
+        )
+    click.echo(f'Re-queued {len(package_ids)} pending Zenodo publish(es).')
