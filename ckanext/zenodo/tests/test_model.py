@@ -86,6 +86,18 @@ def test_add_file_records_filename_and_increments_count():
     ]
 
 
+def test_add_file_same_name_twice_counts_it_once():
+    # Zenodo replaces a file re-uploaded under the same name.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    updated = ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+
+    assert updated.file_count == 1
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['photo.jpg']
+
+
 def test_add_file_on_missing_deposition_returns_none():
     dataset = factories.Dataset()
 

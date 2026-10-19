@@ -96,7 +96,13 @@ class ZenodoDepositionQuery:
         file_count - what the upload blueprint actually calls (rather
         than increment_file_count alone) so the dataset page can list
         real filenames while the deposition is still unpublished (see
-        lib/helpers.py's zenodo_pending_deposition_for_package)."""
+        lib/helpers.py's zenodo_pending_deposition_for_package).
+
+        A filename already recorded is left as is: re-uploading a file
+        under the same name *replaces* it on Zenodo (bucket API PUT on the
+        same key - confirmed on the sandbox, one file left with the second
+        upload's content), so counting it again would leave file_count
+        and the pending list one file too high."""
         record = cls.read_package(package_id)
         if record is None:
             return None
@@ -104,6 +110,8 @@ class ZenodoDepositionQuery:
             filenames = json.loads(record.filenames or '[]')
         except ValueError:
             filenames = []
+        if filename in filenames:
+            return record
         filenames.append(filename)
         return cls.update_package(
             package_id,
