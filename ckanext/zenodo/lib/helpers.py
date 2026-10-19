@@ -54,9 +54,19 @@ from ckanext.zenodo.model import ZenodoDepositionQuery
 # publish_guard.py/delete_zenodo_file.py's own call sites) - a plain string
 # column, not a DB enum, so a new notice kind only needs an entry here, no
 # migration.
+
+
+def N_(message):
+    """Marks a string for translation extraction without translating it
+    yet - these are translated at render time below, in the viewer's own
+    language, not once at import (which would freeze one language for
+    everyone)."""
+    return message
+
+
 _NOTICE_MESSAGES = {
-    'published': toolkit._('Archived on Zenodo'),
-    'new_version_published': toolkit._('Zenodo archive updated'),
+    'published': N_('Archived on Zenodo'),
+    'new_version_published': N_('Zenodo archive updated'),
 }
 
 
@@ -91,7 +101,7 @@ def zenodo_notice_for_package(pkg_dict):
     notice = ZenodoDepositionQuery.pop_notice(package_id)
     result = None
     if notice is not None:
-        message = _NOTICE_MESSAGES.get(notice, notice)
+        message = toolkit._(_NOTICE_MESSAGES.get(notice, notice))
         deposition = ZenodoDepositionQuery.read_package(package_id)
         if deposition and deposition.zenodo_record_doi:
             message = f'{message} (DOI: {deposition.zenodo_record_doi})'

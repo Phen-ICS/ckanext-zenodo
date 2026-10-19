@@ -338,9 +338,11 @@ def _create_zenodo_resources(
         if (r.get('url') or '').startswith(record_url)
     }
 
-    description = f'Archived on Zenodo (DOI: {doi}).' if doi else 'Archived on Zenodo.'
+    # Stored data, shown as-is to every visitor whatever the site's
+    # language - kept language-neutral rather than English.
+    description = f'Zenodo · DOI {doi}' if doi else 'Zenodo'
     if sandbox:
-        description += ' Sandbox record - not a permanent archive.'
+        description += ' · sandbox'
 
     # resource_create -> package_update fires CKAN's activity-tracking
     # signal (ckanext.activity.subscriptions), which needs context['user']

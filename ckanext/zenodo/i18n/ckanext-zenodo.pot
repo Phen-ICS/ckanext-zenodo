@@ -1,0 +1,105 @@
+# Translations template for ckanext-zenodo.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the ckanext-zenodo project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ckanext-zenodo 0.1.19\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-10-19 13:32+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ckanext/zenodo/lib/auth.py:40
+msgid ""
+"Can't delete the last file of a published Zenodo record - Zenodo has no way "
+"to publish a version with no files at all. Add a replacement file first, or "
+"ask an administrator to resolve this dataset's Zenodo archive another way."
+msgstr ""
+
+#: ckanext/zenodo/lib/helpers.py:68
+msgid "Archived on Zenodo"
+msgstr ""
+
+#: ckanext/zenodo/lib/helpers.py:69
+msgid "Zenodo archive updated"
+msgstr ""
+
+#: ckanext/zenodo/lib/lifecycle_guard.py:85
+#, python-brace-format
+msgid ""
+"\"{title}\" was purged, but its files stay publicly archived on Zenodo: "
+"{record}. A published Zenodo record can't be deleted from here - only Zenodo "
+"support can remove it."
+msgstr ""
+
+#: ckanext/zenodo/lib/lifecycle_guard.py:129
+#, python-brace-format
+msgid ""
+"The files of \"{title}\" stored on Zenodo (not yet published) were deleted "
+"too."
+msgstr ""
+
+#: ckanext/zenodo/lib/lifecycle_guard.py:136
+#, python-brace-format
+msgid ""
+"\"{title}\" was deleted, but its files stay publicly archived on Zenodo: "
+"{record}. A published Zenodo record can't be deleted from here - only Zenodo "
+"support can remove it."
+msgstr ""
+
+#: ckanext/zenodo/lib/lifecycle_guard.py:174
+#, python-brace-format
+msgid ""
+"\"{title}\" is now private, but its files already archived on Zenodo stay "
+"public: {record}. A published Zenodo record can't be made private."
+msgstr ""
+
+#: ckanext/zenodo/templates/package/confirm_delete.html:9
+msgid ""
+"Its files stored on Zenodo (not yet published) will be deleted too. They "
+"can't be recovered, even if the dataset is restored later."
+msgstr ""
+
+#: ckanext/zenodo/templates/package/confirm_delete.html:13
+msgid ""
+"Its files already published on Zenodo will stay public there - a published "
+"Zenodo record can't be deleted from here."
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:45
+msgid ""
+"Uploaded to Zenodo - won't be archived with a public DOI until this dataset "
+"itself is made public."
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:47
+msgid "Being archived on Zenodo - reload this page in a moment to see it."
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:83
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:109
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:133
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:138
+msgid "Remove"
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:112
+msgid "Removing…"
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:134
+msgid "Could not remove the file - try again shortly."
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:139
+msgid "Network error."
+msgstr ""
+

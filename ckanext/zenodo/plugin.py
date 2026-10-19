@@ -1,4 +1,5 @@
 from ckan import plugins
+from ckan.lib.plugins import DefaultTranslation
 from ckan.plugins import toolkit
 
 from ckanext.zenodo import model
@@ -24,7 +25,7 @@ except ImportError:
     HAS_XLOADER_INTERFACE = False
 
 
-class ZenodoPlugin(plugins.SingletonPlugin):
+class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
     """Publishes large or non-tabular dataset files to Zenodo (sandbox or
     production) instead of CKAN storage, mapping FDF metadata into the
     Zenodo deposition. See the project's implementation plan for the full
@@ -34,6 +35,7 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     """
 
     plugins.implements(plugins.IActions)
+    plugins.implements(plugins.ITranslation)
     plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IBlueprint)
