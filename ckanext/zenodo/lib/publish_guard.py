@@ -340,7 +340,7 @@ def _create_zenodo_resources(
 
     # Stored data, shown as-is to every visitor whatever the site's
     # language - kept language-neutral rather than English.
-    description = f'Zenodo · DOI {doi}' if doi else 'Zenodo'
+    description = f'Zenodo · DOI [{doi}](https://doi.org/{doi})' if doi else 'Zenodo'
     if sandbox:
         description += ' · sandbox'
 
