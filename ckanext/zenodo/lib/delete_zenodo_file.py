@@ -43,6 +43,7 @@ is still expected to happen in normal use.
 
 import logging
 
+from ckan import model
 from ckan.model import repo
 from ckan.plugins import toolkit
 
@@ -103,6 +104,9 @@ def delete_pending_file(package_id, filename):
     return True
 
 
+_PENDING_KEY = 'zenodo_pending_file_deletions'
+
+
 def maybe_delete_published_file(context, resource, resources):
     """Call from IResourceController.before_resource_delete. Cheap no-op
     for every normal resource deletion; only acts when the resource
@@ -115,7 +119,14 @@ def maybe_delete_published_file(context, resource, resources):
 
     `resource` only carries an id at this hook - the full dict (name,
     url, package_id) is looked up from `resources`, the dataset's own
-    current resource list CKAN passes alongside it."""
+    current resource list CKAN passes alongside it.
+
+    Only *notes* the file in `context` - enqueue_pending_deletions
+    (after_resource_delete) enqueues the job once CKAN's own deletion
+    has actually gone through. Enqueued from here, a resource_delete
+    that then failed (seen with ckanext-xloader's own NotFound bug)
+    still removed the file from Zenodo, leaving a CKAN resource pointing
+    at a file the latest Zenodo version no longer has."""
     full_resource = next(
         (r for r in resources or [] if r.get('id') == resource.get('id')), None
     )
@@ -144,17 +155,53 @@ def maybe_delete_published_file(context, resource, resources):
     if filename not in ZenodoDepositionQuery.list_filenames(package_id):
         return
 
-    toolkit.enqueue_job(
-        _delete_published_file,
-        kwargs={'package_id': package_id, 'filename': filename},
-        title=f'ckanext-zenodo delete_zenodo_file: {filename} from {package_id}',
+    context.setdefault(_PENDING_KEY, []).append(
+        {
+            'package_id': package_id,
+            'filename': filename,
+            'resource_id': full_resource['id'],
+        }
     )
 
 
-def _delete_published_file(package_id, filename):
+def enqueue_pending_deletions(context, resources):
+    """Call from IResourceController.after_resource_delete - CKAN only
+    gets there once its package_update (which removes the resource and
+    commits) has succeeded. `resources` is what's left: a noted resource
+    still in it wasn't deleted after all."""
+    remaining_ids = {r.get('id') for r in resources or []}
+    for pending in context.pop(_PENDING_KEY, []):
+        if pending['resource_id'] in remaining_ids:
+            continue
+        toolkit.enqueue_job(
+            _delete_published_file,
+            kwargs=pending,
+            title=(
+                f'ckanext-zenodo delete_zenodo_file: {pending["filename"]} '
+                f'from {pending["package_id"]}'
+            ),
+        )
+
+
+def _resource_still_active(resource_id):
+    resource = model.Resource.get(resource_id)
+    return resource is not None and resource.state == 'active'
+
+
+def _delete_published_file(package_id, filename, resource_id=None):
     """Runs as its own RQ job - see this module's own docstring for why
     (chains 3 external calls, too slow/risky from inside the
-    before_resource_delete hook itself)."""
+    resource_delete hooks themselves). Last check before touching
+    Zenodo: the CKAN resource must really be gone (resource_id is None
+    only for a job queued before this check existed)."""
+    if resource_id is not None and _resource_still_active(resource_id):
+        log.warning(
+            'delete_zenodo_file: resource %s (%r) is still active - its '
+            'deletion did not go through, leaving the Zenodo file alone',
+            resource_id,
+            filename,
+        )
+        return
     deposition = ZenodoDepositionQuery.read_package(package_id)
     if deposition is None or not deposition.published:
         return

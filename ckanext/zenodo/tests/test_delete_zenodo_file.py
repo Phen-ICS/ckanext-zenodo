@@ -120,12 +120,82 @@ def test_maybe_delete_published_file_enqueues_for_a_matching_resource(monkeypatc
         lambda fn, kwargs=None, **kw: calls.append((fn, kwargs)),
     )
 
-    delete_zenodo_file.maybe_delete_published_file({}, {'id': 'res-1'}, [resource])
+    context = {}
+    delete_zenodo_file.maybe_delete_published_file(context, {'id': 'res-1'}, [resource])
+    # Nothing yet: only once CKAN's own deletion went through.
+    assert calls == []
+    delete_zenodo_file.enqueue_pending_deletions(context, [])
 
     assert len(calls) == 1
     fn, kwargs = calls[0]
     assert fn is delete_zenodo_file._delete_published_file
-    assert kwargs == {'package_id': dataset['id'], 'filename': 'delete-me.txt'}
+    assert kwargs == {
+        'package_id': dataset['id'],
+        'filename': 'delete-me.txt',
+        'resource_id': 'res-1',
+    }
+
+
+def test_nothing_enqueued_when_the_resource_was_not_deleted(monkeypatch):
+    # e.g. resource_delete failed after before_resource_delete ran.
+    _dataset, resource = _published_dataset_with_resource()
+    calls = []
+    monkeypatch.setattr(
+        delete_zenodo_file.toolkit,
+        'enqueue_job',
+        lambda fn, kwargs=None, **kw: calls.append(1),
+    )
+
+    context = {}
+    delete_zenodo_file.maybe_delete_published_file(context, {'id': 'res-1'}, [resource])
+    delete_zenodo_file.enqueue_pending_deletions(context, [resource])
+
+    assert calls == []
+
+
+def test_resource_delete_enqueues_only_once_the_resource_is_gone(monkeypatch):
+    from ckan.tests.helpers import call_action
+
+    dataset, _resource = _published_dataset_with_resource()
+    resource = factories.Resource(
+        package_id=dataset['id'],
+        name='delete-me.txt',
+        url=publish_guard._zenodo_file_preview_url('concept-1', True, 'delete-me.txt'),
+    )
+    calls = []
+    monkeypatch.setattr(
+        delete_zenodo_file.toolkit,
+        'enqueue_job',
+        lambda fn, kwargs=None, **kw: calls.append(kwargs),
+    )
+
+    call_action('resource_delete', {'ignore_auth': True}, id=resource['id'])
+
+    assert calls == [
+        {
+            'package_id': dataset['id'],
+            'filename': 'delete-me.txt',
+            'resource_id': resource['id'],
+        }
+    ]
+
+
+def test_delete_published_file_leaves_zenodo_alone_if_the_resource_is_active(
+    monkeypatch,
+):
+    dataset, _resource = _published_dataset_with_resource()
+    resource = factories.Resource(package_id=dataset['id'], name='delete-me.txt')
+    monkeypatch.setattr(
+        zenodo_client,
+        'create_new_version',
+        lambda *a, **k: pytest.fail('Zenodo must not be touched'),
+    )
+
+    delete_zenodo_file._delete_published_file(
+        dataset['id'], 'delete-me.txt', resource_id=resource['id']
+    )
+
+    assert 'delete-me.txt' in ZenodoDepositionQuery.list_filenames(dataset['id'])
 
 
 def test_maybe_delete_published_file_ignores_an_unrelated_resource(monkeypatch):

@@ -7,7 +7,10 @@ from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
 from ckanext.zenodo.cli import get_commands as get_zenodo_commands
 from ckanext.zenodo.lib import lifecycle_guard, xloader_guard
 from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_auth
-from ckanext.zenodo.lib.delete_zenodo_file import maybe_delete_published_file
+from ckanext.zenodo.lib.delete_zenodo_file import (
+    enqueue_pending_deletions,
+    maybe_delete_published_file,
+)
 from ckanext.zenodo.lib.helpers import (
     zenodo_delete_impact,
     zenodo_description_parts,
@@ -122,3 +125,8 @@ class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
         for why this is a deferred RQ job rather than anything done
         synchronously here."""
         maybe_delete_published_file(context, resource, resources)
+
+    def after_resource_delete(self, context, resources):
+        """Enqueues the Zenodo side of a deletion noted just above, now
+        that CKAN's own deletion has actually gone through."""
+        enqueue_pending_deletions(context, resources)
