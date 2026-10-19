@@ -471,3 +471,17 @@ def accept_pending_community_inclusion(record_id, token, sandbox, package_id):
             package_id,
             record_id,
         )
+
+
+def files_archive_url(package_id):
+    """Zenodo's own ZIP of every file of this dataset's latest published
+    version, downloaded by the browser straight from Zenodo - never
+    through CKAN's server, which is exactly what Zenodo storage is meant
+    to spare. Needs the version's own record id: confirmed against the
+    sandbox that the concept id 404s here. None if nothing is published
+    yet (a pending new version still points at the last published one)."""
+    deposition = ZenodoDepositionQuery.read_package(package_id)
+    if deposition is None or not deposition.zenodo_record_id:
+        return None
+    host = 'sandbox.zenodo.org' if deposition.is_sandbox else 'zenodo.org'
+    return f'https://{host}/api/records/{deposition.zenodo_record_id}/files-archive'

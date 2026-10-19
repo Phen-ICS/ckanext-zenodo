@@ -707,3 +707,19 @@ def test_resource_description_links_the_doi(sandbox, expected_link):
         f'[10.5281/zenodo.1]({expected_link})'
         in pkg_dict['resources'][0]['description']
     )
+
+
+def test_files_archive_url():
+    dataset = factories.Dataset()
+    assert publish_guard.files_archive_url(dataset['id']) is None
+
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/b')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.zip')
+    assert publish_guard.files_archive_url(dataset['id']) is None  # not published
+
+    ZenodoDepositionQuery.mark_published(
+        dataset['id'], 'rec-2', '10.5281/zenodo.2', concept_record_id='concept-1'
+    )
+    assert publish_guard.files_archive_url(dataset['id']) == (
+        'https://sandbox.zenodo.org/api/records/rec-2/files-archive'
+    )
