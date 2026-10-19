@@ -163,6 +163,13 @@ def _publish_deposition(package_id):
         access_right='restricted' if pkg_dict.get('private') else 'open',
         tags=pkg_dict.get('tags'),
         license_id=pkg_dict.get('license_id'),
+        # ckanext-doi's own after_dataset_show adds these to package_show
+        # (soft dependency - absent without it). Only a DOI DataCite has
+        # actually minted (doi_status) - a reserved-but-unminted one
+        # wouldn't resolve. ckanext-doi mints it synchronously in the
+        # same package_update that enqueued this job, so it's there by
+        # now in the normal case.
+        source_doi=pkg_dict.get('doi') if pkg_dict.get('doi_status') else None,
     )
 
     sandbox = deposition.is_sandbox

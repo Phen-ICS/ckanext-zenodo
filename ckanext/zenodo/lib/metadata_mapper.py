@@ -318,16 +318,26 @@ def map_upload_type(types):
 # Built from only the safest, smallest subset of the confirmed-safe list -
 # headings, bold, an unordered list, plain Unicode emoji as "icons" instead
 # of <img>/inline CSS, since the latter is confirmed stripped anyway.
-def build_zenodo_description_html(datacite_metadata, submitter_display_name, tags=None):
+def build_zenodo_description_html(
+    datacite_metadata, submitter_display_name, tags=None, source_doi=None
+):
     """`tags` is the dataset's own CKAN tags (package_show's `tags`
     list), not part of the DataCite dict - passed in explicitly by the
     caller, same reasoning as submitter_display_name below (it's a
-    CKAN-only concept this module has no other way to see)."""
+    CKAN-only concept this module has no other way to see).
+    `source_doi` is the FAIR3R dataset's own DataCite DOI (ckanext-doi),
+    linked so a reader landing on Zenodo can get back to the full
+    catalogue record."""
     submitted_on_behalf_of = (
         '<p><strong>📤 Submitted via the FAIR3R shared account on behalf of:'
         f'</strong> {submitter_display_name}</p>'
     )
     lines = [submitted_on_behalf_of]
+    if source_doi:
+        lines.append(
+            '<p><strong>🔗 FAIR3R dataset:</strong> '
+            f'<a href="https://doi.org/{source_doi}">{source_doi}</a></p>'
+        )
 
     descriptions = datacite_metadata.get('descriptions') or []
     abstract = next(
@@ -376,17 +386,18 @@ def datacite_to_zenodo(
     access_right,
     tags=None,
     license_id=None,
+    source_doi=None,
 ):
     """Build a Zenodo deposition metadata dict from a
     `DataCiteConverter.fdf_to_datacite()`-shaped dict plus the handful of
     values that dict doesn't carry (the dataset's real CKAN title, who's
     actually submitting, the target community, access/license, the
-    dataset's own CKAN tags - all derived from the CKAN package or
-    plugin config by the caller, not re-derived here)."""
+    dataset's own CKAN tags, its own DataCite DOI - all derived from the
+    CKAN package or plugin config by the caller, not re-derived here)."""
     metadata = {
         'title': title,
         'description': build_zenodo_description_html(
-            datacite_metadata, submitter_display_name, tags
+            datacite_metadata, submitter_display_name, tags, source_doi
         ),
         'upload_type': map_upload_type(datacite_metadata.get('types')),
         'access_right': access_right,
@@ -417,6 +428,13 @@ def datacite_to_zenodo(
     related_identifiers = map_related_identifiers(
         datacite_metadata.get('relatedIdentifiers')
     )
+    # Machine-readable link back to the FAIR3R catalogue record: these
+    # files are part of that dataset. Lets DataCite/Zenodo/OpenAlex
+    # resolve the relation, not just a human reading the description.
+    if source_doi and not any(
+        r['identifier'] == source_doi for r in related_identifiers
+    ):
+        related_identifiers.append({'relation': 'isPartOf', 'identifier': source_doi})
     if related_identifiers:
         metadata['related_identifiers'] = related_identifiers
 

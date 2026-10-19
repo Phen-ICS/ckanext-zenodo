@@ -335,3 +335,36 @@ def test_datacite_to_zenodo_omits_empty_optional_fields():
     assert 'keywords' not in result
     assert 'related_identifiers' not in result
     assert 'license' not in result
+
+
+def test_datacite_to_zenodo_links_back_to_the_fair3r_dataset_doi():
+    result = mm.datacite_to_zenodo(
+        {},
+        title='T',
+        submitter_display_name='Jane',
+        community_identifier='fair3r',
+        access_right='open',
+        source_doi='10.82999/fair3r.abc',
+    )
+
+    assert result['related_identifiers'] == [
+        {'relation': 'isPartOf', 'identifier': '10.82999/fair3r.abc'}
+    ]
+    assert 'href="https://doi.org/10.82999/fair3r.abc"' in result['description']
+
+
+def test_datacite_to_zenodo_does_not_duplicate_an_existing_source_doi():
+    result = mm.datacite_to_zenodo(
+        {
+            'relatedIdentifiers': [
+                {'relatedIdentifier': '10.82999/fair3r.abc', 'relationType': 'IsPartOf'}
+            ]
+        },
+        title='T',
+        submitter_display_name='Jane',
+        community_identifier='fair3r',
+        access_right='open',
+        source_doi='10.82999/fair3r.abc',
+    )
+
+    assert len(result['related_identifiers']) == 1
