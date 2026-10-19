@@ -39,6 +39,7 @@ from ckanext.zenodo.lib import (
     delete_zenodo_file,
     disk_guard,
     rate_limit,
+    record_limits,
     zenodo_client,
     zenodo_config,
 )
@@ -102,6 +103,29 @@ def _bucket_for_upload(deposition, token, sandbox):
     return new_draft['links']['bucket'], new_draft
 
 
+def _check_record_limits(package_id, new_size):
+    """Zenodo's own per-record limits (total size, file count) against the
+    deposition's *real* current files, fetched live from Zenodo rather
+    than tracked locally: files get deleted and re-versioned through
+    several code paths (lib/delete_zenodo_file.py, the new-version flow
+    below), so a locally-kept running total would drift. Raises
+    RecordLimitExceeded, or ZenodoError if Zenodo can't be reached."""
+    deposition = ZenodoDepositionQuery.read_package(package_id)
+    existing = []
+    if deposition is not None:
+        token = zenodo_config.access_token(deposition.is_sandbox)
+        data = zenodo_client.get_deposition(
+            deposition.zenodo_deposition_id, token, sandbox=deposition.is_sandbox
+        )
+        existing = data.get('files') or []
+    record_limits.check(
+        existing,
+        new_size,
+        zenodo_config.max_record_bytes(),
+        zenodo_config.max_files_per_record(),
+    )
+
+
 @zenodo_upload.route('/zenodo/upload/<package_name>', methods=['POST'])
 def upload(package_name):
     if current_user.is_anonymous:
@@ -139,6 +163,22 @@ def upload(package_name):
     declared_size = request.content_length or 0
     if declared_size <= 0:
         return _error('Missing or invalid upload size')
+
+    # Checked here, before reserving or reading any of the body, so a
+    # file that can never fit in this record is refused without spooling
+    # it to disk first. declared_size is the whole multipart body, a few
+    # hundred bytes above the file itself - a deliberately conservative
+    # bound that can only matter within that margin of the limit.
+    try:
+        _check_record_limits(pkg_dict['id'], declared_size)
+    except record_limits.RecordLimitExceeded as e:
+        return _error(str(e), 409)
+    except zenodo_client.ZenodoError:
+        log.exception(
+            'Failed to read the current Zenodo files for package %s', pkg_dict['id']
+        )
+        return _error('Could not reach Zenodo - try again shortly', 502)
+
     try:
         reserved = disk_guard.reserve(declared_size)
     except disk_guard.DiskSpaceExceeded as e:

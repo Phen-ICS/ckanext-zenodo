@@ -33,6 +33,12 @@ DEFAULT_COMMUNITY_IDENTIFIER = 'fair3r'
 # much smaller disk (see fair3r-docker-alt's validation host) should
 # override this per-environment, not raise it here.
 DEFAULT_DISK_SAFETY_MARGIN_BYTES = 5 * 1024**3  # 5 GB
+# Zenodo's own limits per *record* (all files together, not per file) -
+# see record_limits.py. Configurable only because Zenodo support can
+# raise them for a given account on request; the defaults are their
+# standard published limits.
+DEFAULT_MAX_RECORD_BYTES = 50 * 1024**3  # 50 GB
+DEFAULT_MAX_FILES_PER_RECORD = 100
 
 
 def sandbox_mode():
@@ -82,6 +88,20 @@ def max_file_size_bytes():
     return toolkit.asint(
         toolkit.config.get(
             'ckanext.zenodo.max_file_size_bytes', DEFAULT_MAX_FILE_SIZE_BYTES
+        )
+    )
+
+
+def max_record_bytes():
+    return toolkit.asint(
+        toolkit.config.get('ckanext.zenodo.max_record_bytes', DEFAULT_MAX_RECORD_BYTES)
+    )
+
+
+def max_files_per_record():
+    return toolkit.asint(
+        toolkit.config.get(
+            'ckanext.zenodo.max_files_per_record', DEFAULT_MAX_FILES_PER_RECORD
         )
     )
 

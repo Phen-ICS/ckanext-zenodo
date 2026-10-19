@@ -67,7 +67,7 @@ def fake_disk_free(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fake_zenodo(monkeypatch):
-    calls = {'created': [], 'uploaded': []}
+    calls = {'created': [], 'uploaded': [], 'files': []}
 
     def fake_create_deposition(token, sandbox=False):
         deposition_id = f'dep-{len(calls["created"]) + 1}'
@@ -79,12 +79,17 @@ def fake_zenodo(monkeypatch):
 
     def fake_upload_file_to_bucket(bucket_url, filename, file_obj, access_token):
         calls['uploaded'].append((bucket_url, filename))
+        calls['files'].append({'filename': filename, 'filesize': len(file_obj.read())})
         return {'filename': filename}
+
+    def fake_get_deposition(deposition_id, access_token, sandbox=False):
+        return {'files': list(calls['files'])}
 
     monkeypatch.setattr(zenodo_client, 'create_deposition', fake_create_deposition)
     monkeypatch.setattr(
         zenodo_client, 'upload_file_to_bucket', fake_upload_file_to_bucket
     )
+    monkeypatch.setattr(zenodo_client, 'get_deposition', fake_get_deposition)
     return calls
 
 
@@ -431,6 +436,54 @@ def test_upload_capacity_reflects_disk_pressure_below_max_file_size(
     # 6 GB free - 5 GB margin = 1 GB - disk is the binding constraint here,
     # well below the default 10 GB max_file_size_bytes.
     assert response.json['result']['available_bytes'] == 1 * 1024**3
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.max_files_per_record', '2')
+def test_upload_rejected_when_record_file_count_limit_reached(app, fake_zenodo):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+
+    for name in ('a.zip', 'b.zip'):
+        assert (
+            _upload(
+                app, dataset['name'], name, b'x' * 10, token=user['token']
+            ).status_code
+            == 200
+        )
+
+    response = _upload(app, dataset['name'], 'c.zip', b'x' * 10, token=user['token'])
+
+    assert response.status_code == 409
+    assert 'at most 2 files' in response.json['error']['message']
+    assert len(fake_zenodo['uploaded']) == 2
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.max_record_bytes', '2000')
+def test_upload_rejected_when_record_total_size_would_be_exceeded(app, fake_zenodo):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+
+    first = _upload(app, dataset['name'], 'a.zip', b'x' * 1000, token=user['token'])
+    second = _upload(app, dataset['name'], 'b.zip', b'x' * 1000, token=user['token'])
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert 'in total per record' in second.json['error']['message']
+    assert len(fake_zenodo['uploaded']) == 1
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.max_files_per_record', '0')
+def test_record_limit_rejection_leaves_no_disk_reservation(app):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+
+    response = _upload(app, dataset['name'], 'a.zip', b'x' * 10, token=user['token'])
+
+    assert response.status_code == 409
+    assert disk_guard.reserved_bytes() == 0
 
 
 def test_zenodo_error_returns_502(app, monkeypatch):
