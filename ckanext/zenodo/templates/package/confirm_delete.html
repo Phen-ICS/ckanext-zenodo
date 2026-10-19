@@ -1,0 +1,17 @@
+{% ckan_extends %}
+
+{# Deleting a dataset deletes its not-yet-published Zenodo files right
+   away (lib/lifecycle_guard.py) - say so before the user confirms. #}
+{% block form %}
+  {% set zenodo_impact = h.zenodo_delete_impact(pkg_dict) %}
+  {% if zenodo_impact == 'draft' %}
+    <div class="alert alert-warning">
+      {{ _("Its files stored on Zenodo (not yet published) will be deleted too. They can't be recovered, even if the dataset is restored later.") }}
+    </div>
+  {% elif zenodo_impact == 'published' %}
+    <div class="alert alert-info">
+      {{ _("Its files already published on Zenodo will stay public there - a published Zenodo record can't be deleted from here.") }}
+    </div>
+  {% endif %}
+  {{ super() }}
+{% endblock %}

@@ -167,3 +167,66 @@ def test_retry_pending_respects_the_limit(enqueued):
     CliRunner().invoke(cli.retry_pending, ['--limit', '2'])
 
     assert len(enqueued) == 2
+
+
+def test_delete_by_the_user_removes_the_unpublished_draft_right_away(enqueued):
+    # Not waiting for a sysadmin to purge the trash.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.zip')
+
+    call_action('package_delete', {'ignore_auth': True}, id=dataset['id'])
+
+    assert enqueued == [
+        (
+            lifecycle_guard._remove_unpublished_draft,
+            {'deposition_id': 'dep-1', 'sandbox': True, 'ever_published': False},
+        )
+    ]
+    # Gone locally too: a dataset restored from the trash mustn't think
+    # it still has those files.
+    assert ZenodoDepositionQuery.read_package(dataset['id']) is None
+
+
+def test_bulk_delete_also_removes_the_unpublished_draft(enqueued):
+    # The organization's bulk Delete is package_patch(state=deleted),
+    # never package_delete.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.zip')
+
+    call_action(
+        'package_patch', {'ignore_auth': True}, id=dataset['id'], state='deleted'
+    )
+
+    assert [kwargs['deposition_id'] for _, kwargs in enqueued] == ['dep-1']
+    assert ZenodoDepositionQuery.read_package(dataset['id']) is None
+
+
+def test_delete_of_a_published_dataset_keeps_its_zenodo_record(enqueued):
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.mark_published(
+        dataset['id'], 'rec-1', '10.5281/zenodo.1', concept_record_id='concept-1'
+    )
+
+    call_action('package_delete', {'ignore_auth': True}, id=dataset['id'])
+
+    assert enqueued == []
+    assert ZenodoDepositionQuery.read_package(dataset['id']) is not None
+
+
+def test_delete_impact_for_the_confirmation_page():
+    from ckanext.zenodo.lib.helpers import zenodo_delete_impact
+
+    nothing, draft, published = (factories.Dataset() for _ in range(3))
+    ZenodoDepositionQuery.create(draft['id'], 'dep-1', 'https://example.test/b')
+    ZenodoDepositionQuery.add_file(draft['id'], 'a.zip')
+    ZenodoDepositionQuery.create(published['id'], 'dep-2', 'https://example.test/b')
+    ZenodoDepositionQuery.mark_published(
+        published['id'], 'rec-1', '10.5281/zenodo.1', concept_record_id='c-1'
+    )
+
+    assert zenodo_delete_impact(nothing) is None
+    assert zenodo_delete_impact(draft) == 'draft'
+    assert zenodo_delete_impact(published) == 'published'

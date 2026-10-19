@@ -142,3 +142,16 @@ def zenodo_pending_deposition_for_package(pkg_dict):
         'waiting_for_public': bool(pkg_dict.get('private')),
         'filenames': filenames,
     }
+
+
+def zenodo_delete_impact(pkg_dict):
+    """For the dataset delete confirmation: 'draft' if deleting it will
+    also delete its not-yet-published files on Zenodo (irreversible -
+    see lifecycle_guard.py), 'published' if its files stay public on
+    Zenodo regardless, None if it has nothing there."""
+    deposition = ZenodoDepositionQuery.read_package(pkg_dict.get('id'))
+    if deposition is None:
+        return None
+    if deposition.concept_record_id:
+        return 'published'
+    return 'draft' if deposition.file_count > 0 else None
