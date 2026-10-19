@@ -10,6 +10,7 @@ from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_au
 from ckanext.zenodo.lib.delete_zenodo_file import maybe_delete_published_file
 from ckanext.zenodo.lib.helpers import (
     zenodo_delete_impact,
+    zenodo_description_html,
     zenodo_notice_for_package,
     zenodo_pending_deposition_for_package,
 )
@@ -99,6 +100,7 @@ class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
             'zenodo_pending_deposition_for_package': zenodo_pending_deposition_for_package,
             'zenodo_notice_for_package': zenodo_notice_for_package,
             'zenodo_delete_impact': zenodo_delete_impact,
+            'zenodo_description_html': zenodo_description_html,
         }
 
     # IPackageController

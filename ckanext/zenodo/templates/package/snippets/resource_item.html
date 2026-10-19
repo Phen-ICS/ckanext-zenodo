@@ -6,7 +6,7 @@
    DOI stays clickable. Every other resource is left alone. #}
 {% block resource_item_description %}
   {% if (res.description or '').startswith('Zenodo · ') %}
-    <div class="description">{{ h.render_markdown(res.description) }}</div>
+    <div class="description">{{ h.zenodo_description_html(res.description) }}</div>
   {% else %}
     {{ super() }}
   {% endif %}

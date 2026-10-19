@@ -1,0 +1,16 @@
+{% ckan_extends %}
+
+{# Same as CKAN's own resource_content, except a Zenodo resource's
+   description goes through h.zenodo_description_html so its DOI link
+   opens in a new tab. Every other resource is left alone. #}
+{% block resource_content %}
+  {% if (res.description or '').startswith('Zenodo · ') %}
+    {{ self.resource_read_title() }}
+    {{ self.resource_read_url() }}
+    <div class="prose notes" property="rdfs:label">
+      {{ h.zenodo_description_html(res.description) }}
+    </div>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}
