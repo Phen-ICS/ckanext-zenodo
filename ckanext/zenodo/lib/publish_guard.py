@@ -160,6 +160,14 @@ def _publish_deposition(package_id):
     if deposition is None or deposition.published:
         return
 
+    # Counted (and committed) up front, so a job that crashes below counts
+    # as an attempt too - mark_published resets it. See cli.py's
+    # retry-pending for what happens past ckanext.zenodo.max_publish_attempts.
+    ZenodoDepositionQuery.update_package(
+        package_id, publish_attempts=(deposition.publish_attempts or 0) + 1
+    )
+    repo.commit()
+
     datacite_metadata = _extract_datacite_metadata(pkg_dict)
     source_doi = pkg_dict.get('doi') if pkg_dict.get('doi_status') else None
     metadata = datacite_to_zenodo(

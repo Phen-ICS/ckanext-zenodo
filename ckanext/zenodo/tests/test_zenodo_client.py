@@ -338,3 +338,52 @@ def test_request_community_inclusion_reraises_other_errors(monkeypatch):
 
     with pytest.raises(zenodo_client.ZenodoError):
         zenodo_client.request_community_inclusion(42, 'fair3r', 'tok', sandbox=True)
+
+
+@pytest.mark.parametrize(
+    'filename, key',
+    [
+        ('data#1.csv', 'data%231.csv'),
+        ('what?.csv', 'what%3F.csv'),
+        ('test (Copie).csv', 'test%20%28Copie%29.csv'),
+        ('résultats.csv', 'r%C3%A9sultats.csv'),
+    ],
+)
+def test_upload_file_to_bucket_encodes_the_filename(monkeypatch, filename, key):
+    # Raw, '#' or '?' would end the path: 'data#1.csv' was stored as 'data'.
+    calls = []
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, *a, **k: calls.append((method, url)) or {},
+    )
+
+    zenodo_client.upload_file_to_bucket(
+        'https://example.test/files/b1/', filename, b'x', 'tok'
+    )
+
+    assert calls == [('PUT', f'https://example.test/files/b1/{key}')]
+
+
+def test_check_calls_hit_the_right_endpoints(monkeypatch):
+    calls = []
+
+    def fake(method, url, *a, **k):
+        calls.append((method, url, k.get('params')))
+        return {'hits': {'hits': [{'role': 'owner'}]}}
+
+    monkeypatch.setattr(zenodo_client, '_request', fake)
+
+    zenodo_client.get_me('tok', sandbox=True)
+    zenodo_client.list_depositions('tok', sandbox=True)
+    zenodo_client.get_community('fair3r', 'tok', sandbox=True)
+    members = zenodo_client.list_community_members('c-1', 'tok', sandbox=True)
+
+    base = 'https://sandbox.zenodo.org/api'
+    assert calls == [
+        ('GET', f'{base}/me', None),
+        ('GET', f'{base}/deposit/depositions', {'size': 1}),
+        ('GET', f'{base}/communities/fair3r', None),
+        ('GET', f'{base}/communities/c-1/members', {'size': 100}),
+    ]
+    assert members == [{'role': 'owner'}]

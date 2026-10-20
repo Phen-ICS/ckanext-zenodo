@@ -39,6 +39,10 @@ DEFAULT_DISK_SAFETY_MARGIN_BYTES = 5 * 1024**3  # 5 GB
 # standard published limits.
 DEFAULT_MAX_RECORD_BYTES = 50 * 1024**3  # 50 GB
 DEFAULT_MAX_FILES_PER_RECORD = 100
+# How many times a publish is attempted before `ckan zenodo retry-pending`
+# (every 30 min by cron) gives up on it - 10 is about 5 hours, long enough
+# to ride out a Zenodo outage. Editing the dataset still tries again.
+DEFAULT_MAX_PUBLISH_ATTEMPTS = 10
 
 
 def sandbox_mode():
@@ -102,6 +106,14 @@ def max_files_per_record():
     return toolkit.asint(
         toolkit.config.get(
             'ckanext.zenodo.max_files_per_record', DEFAULT_MAX_FILES_PER_RECORD
+        )
+    )
+
+
+def max_publish_attempts():
+    return toolkit.asint(
+        toolkit.config.get(
+            'ckanext.zenodo.max_publish_attempts', DEFAULT_MAX_PUBLISH_ATTEMPTS
         )
     )
 

@@ -18,6 +18,7 @@ same pattern as openalex_client.py/datacite_events_client.py.
 
 import logging
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -122,9 +123,49 @@ def upload_file_to_bucket(bucket_url, filename, file_obj, access_token):
     points at the right instance (sandbox or production), so there's no
     separate `sandbox` argument here. `requests` reads file-like objects
     incrementally itself; nothing here buffers the whole file into
-    memory."""
-    url = f'{bucket_url.rstrip("/")}/{filename}'
+    memory.
+
+    The filename is percent-encoded as one path segment: left raw, `#`
+    or `?` in it end the path (`data#1.csv` was stored as `data`)."""
+    url = f'{bucket_url.rstrip("/")}/{quote(filename, safe="")}'
     return _request('PUT', url, access_token, data=file_obj, timeout=UPLOAD_TIMEOUT)
+
+
+def list_depositions(access_token, sandbox=False, size=1):
+    """The token's own depositions (a few is enough to prove access)."""
+    return _request(
+        'GET',
+        f'{base_url(sandbox)}/deposit/depositions',
+        access_token,
+        params={'size': size},
+    )
+
+
+def get_me(access_token, sandbox=False):
+    """The account the token belongs to ({'id': ..., ...}). An invalid
+    token is a 401 -> ZenodoError."""
+    return _request('GET', f'{base_url(sandbox)}/me', access_token)
+
+
+def get_community(identifier, access_token, sandbox=False):
+    """A community by slug (e.g. 'fair3r') or id, None if there's none."""
+    return _request(
+        'GET',
+        f'{base_url(sandbox)}/communities/{quote(identifier, safe="")}',
+        access_token,
+    )
+
+
+def list_community_members(community_id, access_token, sandbox=False):
+    """The community's members ({'member': {'type', 'id'}, 'role'}, ...),
+    as far as this token's account may see them."""
+    result = _request(
+        'GET',
+        f'{base_url(sandbox)}/communities/{community_id}/members',
+        access_token,
+        params={'size': 100},
+    )
+    return ((result or {}).get('hits') or {}).get('hits') or []
 
 
 def publish_deposition(deposition_id, access_token, sandbox=False):

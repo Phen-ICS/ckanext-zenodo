@@ -69,36 +69,71 @@ def clear(yes):
     show_default=True,
     help='Only retry depositions untouched for at least this many minutes.',
 )
-def retry_pending(limit, min_age):
+@click.option(
+    '--include-failed',
+    is_flag=True,
+    help='Also retry depositions past ckanext.zenodo.max_publish_attempts '
+    '(their count starts again from zero).',
+)
+def retry_pending(limit, min_age, include_failed):
     """Re-queues the Zenodo publish of datasets that are public with files
     still waiting - i.e. a previous publish job failed (Zenodo down, rate
     limit after a big bulk "Make public"...). Meant for cron: one DB
     query, only enqueues (the RQ worker does the work, one at a time),
     capped by --limit so a run never hammers Zenodo. --min-age skips
     publishes that are probably just still queued; a job that fails
-    again simply gets picked up by the next run."""
+    again simply gets picked up by the next run - up to
+    ckanext.zenodo.max_publish_attempts, then it's left alone (and
+    listed here) until --include-failed or an edit of the dataset."""
     from datetime import datetime, timedelta, timezone
 
     from ckan import model
     from ckan.plugins import toolkit
 
+    from ckanext.zenodo.lib import zenodo_config
     from ckanext.zenodo.lib.publish_guard import _publish_deposition
     from ckanext.zenodo.model.zenodo_deposition import ZenodoDeposition
 
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=min_age)
-    package_ids = [
-        row.package_id
-        for row in model.Session.query(ZenodoDeposition.package_id)
+    max_attempts = zenodo_config.max_publish_attempts()
+    pending = (
+        model.Session.query(ZenodoDeposition, model.Package.name)
         .join(model.Package, model.Package.id == ZenodoDeposition.package_id)
         .filter(
             ZenodoDeposition.published.is_(False),
             ZenodoDeposition.file_count > 0,
-            ZenodoDeposition.updated < cutoff,
             model.Package.state == 'active',
             model.Package.private.is_(False),
         )
+    )
+    given_up = pending.filter(ZenodoDeposition.publish_attempts >= max_attempts)
+
+    # Retried right away: resetting the count also bumps `updated`, which
+    # --min-age would then skip.
+    package_ids = []
+    if include_failed:
+        for deposition, _name in given_up:
+            deposition.publish_attempts = 0
+            package_ids.append(deposition.package_id)
+        model.repo.commit()
+    else:
+        for deposition, name in given_up:
+            click.secho(
+                f'Not retried: {name} - {deposition.publish_attempts} failed '
+                f'publish attempts (use --include-failed to retry anyway)',
+                fg='yellow',
+                err=True,
+            )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=min_age)
+    package_ids += [
+        deposition.package_id
+        for deposition, _name in pending.filter(
+            ZenodoDeposition.publish_attempts < max_attempts,
+            ZenodoDeposition.updated < cutoff,
+        )
         .order_by(ZenodoDeposition.updated)
         .limit(limit)
+        if deposition.package_id not in package_ids
     ]
     for package_id in package_ids:
         toolkit.enqueue_job(
@@ -107,3 +142,19 @@ def retry_pending(limit, min_age):
             title=f'ckanext-zenodo retry-pending: publish {package_id}',
         )
     click.echo(f'Re-queued {len(package_ids)} pending Zenodo publish(es).')
+
+
+@zenodo.command(name='check')
+def check():
+    """Checks the Zenodo token and community against Zenodo itself - run
+    it after changing them, or at the end of a deploy. Exits 1 on the
+    first problem."""
+    from ckanext.zenodo.lib.config_check import run_checks
+
+    results = run_checks()
+    for ok, message in results:
+        click.secho(
+            f'{"OK  " if ok else "FAIL"} {message}', fg='green' if ok else 'red'
+        )
+    if not all(ok for ok, _message in results):
+        raise click.exceptions.Exit(1)

@@ -164,6 +164,7 @@ class ZenodoDepositionQuery:
             'published': True,
             'zenodo_record_id': zenodo_record_id,
             'zenodo_record_doi': zenodo_record_doi,
+            'publish_attempts': 0,
         }
         if concept_record_id is not None:
             kwargs['concept_record_id'] = concept_record_id

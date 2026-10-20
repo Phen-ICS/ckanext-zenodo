@@ -218,6 +218,7 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
     assert record.published is True
     assert record.zenodo_record_id == 'rec-1'
     assert record.zenodo_record_doi == '10.5281/zenodo.1'
+    assert record.publish_attempts == 0  # reset by the successful publish
 
     pkg = toolkit.get_action('package_show')(
         {'ignore_auth': True}, {'id': dataset['id']}
@@ -349,9 +350,11 @@ def test_publish_deposition_leaves_unpublished_on_zenodo_error(monkeypatch):
     monkeypatch.setattr(zenodo_client, 'publish_deposition', failing_publish)
 
     publish_guard._publish_deposition(dataset['id'])
+    publish_guard._publish_deposition(dataset['id'])
 
     record = ZenodoDepositionQuery.read_package(dataset['id'])
     assert record.published is False
+    assert record.publish_attempts == 2
 
 
 def test_publish_deposition_is_a_noop_when_already_published(monkeypatch):

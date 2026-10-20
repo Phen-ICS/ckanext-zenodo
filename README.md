@@ -114,6 +114,29 @@ for the (usually short) gap between the file reaching Zenodo and the
 publish job above actually running - see `lib/helpers.py`'s
 `zenodo_pending_deposition_for_package()`.
 
+## Failed publishes
+
+A publish that fails (Zenodo down, rate limit...) is re-queued by
+`ckan zenodo retry-pending`, run every 30 min by cron. Each attempt is
+counted; after `ckanext.zenodo.max_publish_attempts` (default 10, about
+5 hours) the command stops re-queueing it, lists it on each run, and the
+dataset page says the archiving keeps failing instead of "reload in a
+moment". Editing the dataset tries again; `ckan zenodo retry-pending
+--include-failed` re-queues all of them with a fresh count.
+
+## Checking the setup
+
+```shell
+ckan -c /path/to/ckan.ini zenodo check
+```
+
+Checks, against Zenodo itself, that a token is set for the current mode
+(sandbox or zenodo.org), that Zenodo accepts it and lets it use the
+deposit API, that `ckanext.zenodo.community_identifier` exists, and that
+the token's account is owner, manager or curator of that community -
+otherwise publishing works but accepting each record into the community
+fails with a 403. Exits 1 on the first problem, so a deploy can run it.
+
 ## Tests
 
 ```shell

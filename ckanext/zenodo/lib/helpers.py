@@ -50,6 +50,7 @@ import re
 from ckan.plugins import toolkit
 from flask import g, has_app_context
 
+from ckanext.zenodo.lib import zenodo_config
 from ckanext.zenodo.model import ZenodoDepositionQuery
 
 # Keyed by the short code ZenodoDepositionQuery.set_notice() stores (see
@@ -152,6 +153,10 @@ def zenodo_pending_deposition_for_package(pkg_dict):
 
     return {
         'waiting_for_public': bool(pkg_dict.get('private')),
+        # retry-pending has given up on it (see cli.py) - "reload in a
+        # moment" would no longer be true.
+        'publish_failed': (deposition.publish_attempts or 0)
+        >= zenodo_config.max_publish_attempts(),
         'filenames': filenames,
     }
 
