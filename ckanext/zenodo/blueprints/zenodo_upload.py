@@ -55,6 +55,9 @@ def _error(message, status=400):
     return jsonify({'success': False, 'error': {'message': message}}), status
 
 
+NOT_CONFIGURED = "Zenodo isn't set up on this site - ask its administrators."
+
+
 def _file_size(file_storage):
     stream = file_storage.stream
     stream.seek(0, 2)  # SEEK_END
@@ -130,6 +133,8 @@ def _check_record_limits(package_id, new_size):
 def upload(package_name):
     if current_user.is_anonymous:
         return _error('Login required', 403)
+    if not zenodo_config.is_configured():
+        return _error(NOT_CONFIGURED, 503)
 
     context = {'user': current_user.name}
     try:
@@ -324,6 +329,8 @@ def upload_capacity():
     anything itself."""
     if current_user.is_anonymous:
         return _error('Login required', 403)
+    if not zenodo_config.is_configured():
+        return _error(NOT_CONFIGURED, 503)
 
     available = min(disk_guard.available_bytes(), zenodo_config.max_file_size_bytes())
     return jsonify({'success': True, 'result': {'available_bytes': available}})

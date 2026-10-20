@@ -51,3 +51,14 @@ def test_disk_safety_margin_bytes_default():
 @pytest.mark.ckan_config('ckanext.zenodo.disk_safety_margin_bytes', str(1024**3))
 def test_disk_safety_margin_bytes_can_be_overridden():
     assert zenodo_config.disk_safety_margin_bytes() == 1024**3
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.sandbox_access_token', '')
+def test_without_a_token_nothing_is_routed_to_zenodo():
+    assert zenodo_config.is_configured() is False
+    assert zenodo_config.routing_config_dict() is None
+
+
+def test_with_a_token_zenodo_is_configured():
+    # test.ini sets ckanext.zenodo.sandbox_access_token.
+    assert zenodo_config.is_configured() is True

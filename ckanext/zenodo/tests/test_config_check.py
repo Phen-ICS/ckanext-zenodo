@@ -27,8 +27,16 @@ def zenodo(monkeypatch):
 
         return fn
 
+    def access_token(sandbox):
+        if not state['token']:
+            raise RuntimeError('not configured')  # what the real one does
+        return state['token']
+
     monkeypatch.setattr(zenodo_config, 'sandbox_mode', lambda: True)
-    monkeypatch.setattr(zenodo_config, 'access_token', lambda sandbox: state['token'])
+    monkeypatch.setattr(
+        zenodo_config, 'is_configured', lambda sandbox=None: bool(state['token'])
+    )
+    monkeypatch.setattr(zenodo_config, 'access_token', access_token)
     monkeypatch.setattr(zenodo_config, 'community_identifier', lambda: 'fair3r')
     monkeypatch.setattr(zenodo_client, 'get_me', answer('get_me', 'me'))
     monkeypatch.setattr(

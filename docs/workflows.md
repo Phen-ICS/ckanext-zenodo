@@ -23,7 +23,8 @@ it" for a Zenodo file sent to Zenodo again). The routing thresholds come
 from a `<meta name="zenodo-routing-config">` tag (`routing_config_dict()`).
 
 The browser decision is a convenience only: the server checks everything
-again.
+again. Without a Zenodo token configured, none of this applies: the form
+offers no Zenodo option and every file stays in CKAN.
 
 ### Upload - `POST /zenodo/upload/<dataset>`
 
@@ -32,7 +33,7 @@ and nothing is sent to Zenodo:
 
 | # | Check | Failure |
 |---|---|---|
-| 1 | Logged in | 403 |
+| 1 | Logged in; a Zenodo token is configured | 403 / 503 |
 | 2 | Dataset exists and the user may add a resource to it (`resource_create` permission) | 404 / 403 |
 | 3 | Hourly request count and byte budget of this user (`rate_limit.py`) | 429 |
 | 4 | Request has a size (`Content-Length`) | 400 |

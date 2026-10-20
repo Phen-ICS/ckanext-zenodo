@@ -21,6 +21,13 @@ files go to Zenodo), `ckanext.xloader.formats` (formats that stay in
 CKAN), `ckan.preview.image_formats` / `audio_formats` / `video_formats`
 (which files get a preview).
 
+**Without a token** for the current mode, the plugin stays out of the
+way: nothing is routed to Zenodo (every file stays in CKAN, as if the
+plugin weren't there), uploads to Zenodo are refused with "Zenodo isn't
+set up on this site", a warning is logged at startup, and
+`ckan zenodo check` reports the missing setting. So it can be enabled
+before its account exists.
+
 The token, the community and `test_mode` must belong to the same site:
 a token only works on the site that issued it, and the community must
 exist there.

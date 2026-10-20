@@ -1,3 +1,5 @@
+import logging
+
 from ckan import plugins
 from ckan.lib.plugins import DefaultTranslation
 from ckan.plugins import toolkit
@@ -5,7 +7,7 @@ from ckan.plugins import toolkit
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
 from ckanext.zenodo.cli import get_commands as get_zenodo_commands
-from ckanext.zenodo.lib import lifecycle_guard, xloader_guard
+from ckanext.zenodo.lib import lifecycle_guard, xloader_guard, zenodo_config
 from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_auth
 from ckanext.zenodo.lib.delete_zenodo_file import (
     enqueue_pending_deletions,
@@ -18,6 +20,8 @@ from ckanext.zenodo.lib.helpers import (
     zenodo_pending_deposition_for_package,
 )
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
+
+log = logging.getLogger(__name__)
 
 try:
     from ckanext.xloader.interfaces import IXloader
@@ -85,6 +89,12 @@ class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
         # with ckan.model.meta before anything queries them - same pattern
         # ckanext-citations' plugin.py uses.
         _ = model
+        if not zenodo_config.is_configured():
+            log.warning(
+                'ckanext-zenodo is enabled but %s is not set - nothing is '
+                'routed to Zenodo until it is (ckan zenodo check)',
+                zenodo_config.access_token_key(),
+            )
 
     # IBlueprint
 
