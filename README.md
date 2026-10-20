@@ -29,7 +29,7 @@ Zenodo record.
 - **Dataset deleted**: unpublished Zenodo files are deleted with it;
   published ones stay on Zenodo (the user is told so).
 
-The full specification is in [docs/](docs/README.md): architecture, every
+The full specification is in [docs/](https://github.com/Phen-ICS/ckanext-zenodo/blob/main/docs/README.md): architecture, every
 workflow step by step, metadata mapping, security, configuration and
 operations, and the Zenodo API behaviour it relies on.
 
@@ -74,7 +74,7 @@ operations, and the Zenodo API behaviour it relies on.
    ```
 
    Every other setting has a default - see
-   [docs/operations.md](docs/operations.md#configuration-ckanini).
+   [docs/operations.md](https://github.com/Phen-ICS/ckanext-zenodo/blob/main/docs/operations.md#configuration-ckanini).
 
 4. Create the table:
 
