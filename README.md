@@ -3,144 +3,138 @@
 
 # ckanext-zenodo
 
-Publishes large or non-tabular dataset files to [Zenodo](https://zenodo.org/)
-(sandbox during development, production later) instead of CKAN storage,
-mapping the dataset's FDF metadata into the Zenodo deposition. The CKAN
-dataset stays published in the FAIR3R catalogue (full FDF metadata,
-searchable) with a link to the Zenodo DOI for the actual data, instead of
-carrying the file itself.
+Stores a dataset's large or non-tabular files on [Zenodo](https://zenodo.org/)
+instead of in CKAN's own storage, and publishes them there - with a DOI,
+in a Zenodo community - when the dataset is made public. The dataset stays
+a normal, searchable CKAN dataset: each Zenodo file appears in it as a
+resource linking to Zenodo, with a preview for images, audio, video and
+PDF. Built for the FAIR3R catalogue, whose FDF metadata it maps into the
+Zenodo record.
 
-## Documentation
+## How it works
 
-The full specification - architecture, every workflow step by step,
-metadata mapping, security, configuration and operations, and the Zenodo
-API behaviour it relies on - is in [docs/](docs/README.md).
+- **Routing**: a file goes to Zenodo when it's larger than
+  `ckan.max_resource_size`, or in a format the data viewer can't read
+  (not in `ckanext.xloader.formats`), or when the user switches
+  "Zenodo" on. Everything else stays in CKAN.
+- **Upload**: the file is streamed through the CKAN server into a draft
+  Zenodo deposition kept for the dataset, by one shared Zenodo account.
+  Nothing is public yet.
+- **Publish**: when the dataset is active and public, a background job
+  writes the metadata, publishes the deposition (Zenodo mints a DOI),
+  files it into the community and creates the CKAN resources.
+- **Later changes**: adding, replacing or deleting a file publishes a new
+  version of the same record. Resources link to the record's concept DOI,
+  which always resolves to the latest version.
+- **Dataset deleted**: unpublished Zenodo files are deleted with it;
+  published ones stay on Zenodo (the user is told so).
 
-Routing rule: a file goes to Zenodo instead of CKAN storage when it's
-larger than `ckan.max_resource_size`, or its format isn't one
-`ckanext.xloader.formats` can read - or whenever the user explicitly asks
-for Zenodo regardless of size/format.
+The full specification is in [docs/](docs/README.md): architecture, every
+workflow step by step, metadata mapping, security, configuration and
+operations, and the Zenodo API behaviour it relies on.
+
+## Requirements
+
+- CKAN 2.12 with its Redis and background worker (`ckan jobs worker`)
+  running - publishing and deletions run as background jobs.
+- A Zenodo account and a personal access token (Zenodo -> Applications ->
+  Personal access tokens) allowed to create and publish depositions
+  (`deposit:write`, `deposit:actions`). Use
+  [sandbox.zenodo.org](https://sandbox.zenodo.org/) for testing: it's a
+  separate site, with its own account, token and community.
+- A Zenodo community, of which that account is owner, manager or curator
+  (needed to accept each record into it).
+- Recommended: **ckanext-fair3r** (the upload form that routes files here,
+  and the FDF metadata) and **ckanext-doi** (link from the Zenodo record
+  back to the dataset's DOI). Without ckanext-fair3r, nothing in CKAN's
+  standard interface sends files here.
+
+## Installation
+
+1. Install the package in CKAN's virtualenv:
+
+   ```shell
+   pip install ckanext-zenodo
+   ```
+
+2. Enable the plugin, with CKAN's view plugins used for the previews, in
+   `ckan.ini`:
+
+   ```ini
+   ckan.plugins = ... zenodo image_view audio_view video_view pdf_view
+   ```
+
+3. Configure the Zenodo account (sandbox here; for zenodo.org set
+   `test_mode = false` and `ckanext.zenodo.access_token` instead):
+
+   ```ini
+   ckanext.zenodo.test_mode = true
+   ckanext.zenodo.sandbox_access_token = <token>
+   ckanext.zenodo.community_identifier = fair3r
+   ```
+
+   Every other setting has a default - see
+   [docs/operations.md](docs/operations.md#configuration-ckanini).
+
+4. Create the table:
+
+   ```shell
+   ckan -c /path/to/ckan.ini db upgrade -p zenodo
+   ```
+
+5. Retry failed publishes every 30 minutes, as the CKAN user (cron):
+
+   ```cron
+   */30 * * * * /path/to/venv/bin/ckan -c /path/to/ckan.ini zenodo retry-pending
+   ```
+
+6. Let large uploads through: the reverse proxy's body size limit for
+   `/zenodo/upload/` must allow `ckanext.zenodo.max_file_size_bytes`
+   (10 GB by default), and the server needs that much free disk on top of
+   `ckanext.zenodo.disk_safety_margin_bytes` (5 GB) - each upload is
+   written to a temporary file before being sent on.
+
+7. Restart CKAN and its worker, then check the setup against Zenodo:
+
+   ```shell
+   ckan -c /path/to/ckan.ini zenodo check
+   ```
+
+   It verifies the token, its access to depositions, the community and
+   the account's role in it, and exits 1 on the first problem.
+
+## Commands
+
+| Command | Use |
+|---|---|
+| `ckan zenodo check` | Verify the token and community against Zenodo |
+| `ckan zenodo retry-pending [--include-failed]` | Re-queue failed publishes (cron). Gives up after `ckanext.zenodo.max_publish_attempts` (10) unless `--include-failed` |
+| `ckan zenodo disk-reservations show` / `clear` | Disk space reserved by uploads in flight / reset it after a crashed worker |
 
 ## Relationship to ckanext-fair3r
 
-Not a declared package dependency (not in `pyproject.toml`), but FAIR3R is
-this plugin's reason to exist, at two different levels:
+Not a declared dependency, but the reason this plugin exists:
 
-- **Soft Python dependency** - `lib/publish_guard.py` imports
-  `ckanext.fair3r.lib.fdf.datacite_converter.DataCiteConverter` inside a
-  `try`/`except ImportError` to map a dataset's FDF metadata into the
-  Zenodo deposition's description/creators/keywords/etc. Same pattern
-  `ckanext-citations`' `helpers.py` already uses for
-  `completeness_for_package`. Without `ckanext-fair3r` installed (or on a
-  dataset with no `fdf_output_json` extra), a deposition still gets
-  published - just with minimal metadata (title and the submitting user's
-  name only), never a hard failure.
-- **Operational dependency, not a code one** - the actual trigger for
-  uploading to this plugin's `/zenodo/upload/<package>` endpoint lives
-  entirely in `ckanext-fair3r`'s own `resource-upload.js` (the
-  size/format routing decision and the "force Zenodo" checkbox). Without
-  `ckanext-fair3r` installed *and enabled*, nothing in the normal CKAN UI
-  ever calls this plugin's upload endpoint at all - it would need a
-  hand-crafted request. See the implementation plan's staged delivery
-  order for exactly where that wiring lands.
-
-In short: install this plugin on its own and it runs (migrations apply,
-the blueprint responds, tests pass), but it's only actually useful
-alongside a FAIR3R deployment that also runs `ckanext-fair3r`.
-
-## Sandbox smoke test findings (Stage 8)
-
-Confirmed empirically against the real `sandbox.zenodo.org` (the current,
-InvenioRDM-based Zenodo) - two things the implementation plan flagged as
-unverified assumptions, now settled:
-
-- **`metadata.creators` is required to publish**, even though updating a
-  deposition's metadata without it is accepted - omitting it makes
-  `publish_deposition` fail every time with a 400. `metadata_mapper.py`'s
-  `datacite_to_zenodo` now always sets `creators`, falling back to the
-  submitter's name when the DataCite metadata has none (e.g. no
-  `ckanext-fair3r`, or no FDF metadata yet).
-- **Setting `metadata.communities` does not associate the record with
-  that community by itself** - it only opens a pending
-  `community-inclusion` request against the record, which stays
-  unaccepted (and invisible under the community) until explicitly
-  accepted, even for the account that owns the community. `publish_guard.py`
-  now does this automatically right after a successful publish
-  (`_accept_pending_community_inclusion`) - best-effort: a failure here
-  is logged but never undoes the publish (the DOI is already minted by
-  that point).
-- The description HTML sanitizer runs **on write**, not just on display,
-  and its real allow-list is now documented directly above
-  `build_zenodo_description_html` in `metadata_mapper.py` (confirmed by
-  round-tripping a probe deposition through every plausible tag and
-  reading back what Zenodo actually stored).
-
-## When a deposition actually gets published to Zenodo
-
-Same trigger condition as ckanext-doi's own `after_dataset_update`
-(already established in this project, for this exact question, on this
-exact CKAN dataset): the dataset must be **active AND not private**,
-not just active. Minting a Zenodo DOI is a one-way action, same as
-DataCite's own - a dataset that's active but still private never gets
-one yet. The hook fires on every dataset update, not just once right
-after creation, so a dataset created active+private and made public
-only later still gets published the next time it's updated (even just
-toggling that flag) - no catch-up job needed. One consequence: by the
-time a deposition is actually published, the dataset is always already
-public, so Zenodo's `access_right` is always `'open'` - there's no way
-to end up with a stale `'restricted'` record whose CKAN dataset later
-went public without Zenodo ever being told.
-
-## How the published record shows up in CKAN
-
-`publish_guard.py` creates one genuine CKAN **Link resource per file**
-actually uploaded to Zenodo (`url` = the published record's landing
-page, same url for every file in that deposition - no file upload into
-CKAN itself), named after each file's real filename - not a bespoke
-display panel bolted on elsewhere, and not one generic entry for the
-whole deposition either. A real resource needs no template override to
-show up in the normal "Data and Resources" list, and - more importantly
-- gets picked up by anything that already iterates `pkg.resources`
-(ckanext-fair3r's DCAT/schema.org/Croissant export included), which a
-panel outside the resource list never would be. Idempotent by
-(name, url) rather than a new DB column: a retried publish job that
-already created some or all of these resources on an earlier,
-interrupted attempt won't create duplicates.
-
-A minimal notice ("...is being archived on Zenodo - reload this page in
-a moment...") shows instead, in the same "Data and Resources" area,
-for the (usually short) gap between the file reaching Zenodo and the
-publish job above actually running - see `lib/helpers.py`'s
-`zenodo_pending_deposition_for_package()`.
-
-## Failed publishes
-
-A publish that fails (Zenodo down, rate limit...) is re-queued by
-`ckan zenodo retry-pending`, run every 30 min by cron. Each attempt is
-counted; after `ckanext.zenodo.max_publish_attempts` (default 10, about
-5 hours) the command stops re-queueing it, lists it on each run, and the
-dataset page says the archiving keeps failing instead of "reload in a
-moment". Editing the dataset tries again; `ckan zenodo retry-pending
---include-failed` re-queues all of them with a fresh count.
-
-## Checking the setup
-
-```shell
-ckan -c /path/to/ckan.ini zenodo check
-```
-
-Checks, against Zenodo itself, that a token is set for the current mode
-(sandbox or zenodo.org), that Zenodo accepts it and lets it use the
-deposit API, that `ckanext.zenodo.community_identifier` exists, and that
-the token's account is owner, manager or curator of that community -
-otherwise publishing works but accepting each record into the community
-fails with a 403. Exits 1 on the first problem, so a deploy can run it.
+- ckanext-fair3r's resource form decides, in the browser, which files go
+  to Zenodo and sends them to this plugin's `/zenodo/upload/<dataset>`
+  endpoint (with the "Zenodo" switch and the live capacity badge). It
+  also provides the "Publish" button and "Download all", which uses
+  Zenodo's own ZIP for Zenodo files.
+- This plugin converts the dataset's FDF metadata with ckanext-fair3r's
+  DataCite converter (optional import). Without it, a record is still
+  published, with minimal metadata (title, tags, licence, submitter).
 
 ## Tests
 
 ```shell
 docker exec -u ckan -it ckan-app pytest --ckan-ini=/plugins/ckanext-zenodo/test.ini /plugins/ckanext-zenodo/ckanext/zenodo/tests
 ```
+
+Always pass `--ckan-ini`: the test fixtures empty the database they run
+against, and refuse to run unless its name contains `test`. The
+`test.ini` at the repository root is for the DEV container;
+`ckanext/zenodo/tests/test.ini`, shipped in the package, is the one the
+integration server uses - keep their plugin lists in sync.
 
 ## License
 

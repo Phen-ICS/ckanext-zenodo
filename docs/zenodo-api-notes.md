@@ -23,6 +23,10 @@ code.
 - A deposition with **no files can't be published** ("mark it as
   metadata-only"); one with **no creators** is accepted as a draft but
   can't be published either (400, missing required field).
+- The description's HTML is filtered **when it's written**, not only when
+  displayed: what's stored is already the filtered version. The tags
+  that survive are listed in a comment above
+  `build_zenodo_description_html` in `metadata_mapper.py`.
 - A never-published deposition can be deleted
   (`DELETE /api/deposit/depositions/<id>`); a new-version draft is
   discarded (`POST .../actions/discard`). A published record can't be
