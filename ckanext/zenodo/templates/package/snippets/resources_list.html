@@ -1,88 +1,148 @@
 {#
-  Adds a distinct "archived on Zenodo" card above CKAN's own resource
-  list, when this dataset has a Zenodo deposition. Deliberately its own
-  separate <ul> rather than merged into {{ super() }}'s resource list -
-  a Zenodo-hosted file never becomes a CKAN resource at all (that's the
-  whole point of routing it there instead), so it has no resource_item.html
-  to render through; styling it close to a resource card (not a plain
-  line of text) is what makes it discoverable instead of looking like an
-  afterthought below an empty "this dataset has no data" message.
+  Covers only the transient gap between a file reaching Zenodo (upload is
+  synchronous) and the real CKAN Link resources existing for it (created
+  by publish_guard.py's deferred RQ job, only enqueued once the dataset
+  is active AND public) - without it, someone landing on the dataset
+  page in that window sees CKAN's own plain "This dataset has no data"
+  right after successfully uploading, which reads as a failure rather
+  than "still in progress" (or, for a private dataset, as if the upload
+  silently vanished - it's just not getting a public Zenodo record yet,
+  on purpose). Once the job runs, h.zenodo_pending_deposition_for_package()
+  stops returning anything (real resources exist for it by then), so
+  this never duplicates or outlives them.
+
+  Also the only place a "remove this file" button makes sense for a
+  file still pending (once published, that goes through CKAN's own
+  normal "delete resource" button instead - see
+  lib/delete_zenodo_file.py's own docstring) - these are the user's own
+  files, theirs to remove while there's still time.
+
+  Rendered inside the same <ul class="resource-list"> CKAN itself uses
+  (see super(), core's package/snippets/resources_list.html) - each
+  pending file is its own <li class="resource-item">, same shape as a
+  real one (resource_item.html's own .heading + .description), so these
+  don't look like a bespoke, differently-sized panel bolted on next to
+  the real resource list.
 #}
 {% ckan_extends %}
 
 {% block resource_list %}
-  {% set zenodo_deposition = h.zenodo_deposition_for_package(pkg.id) %}
-  {% if zenodo_deposition %}
+  {% set zenodo_notice = h.zenodo_notice_for_package(pkg) %}
+  {% if zenodo_notice %}
+    {# Same classes core's own page.html uses to render a real
+       flash_success() - this isn't one (see
+       lib/helpers.py's zenodo_notice_for_package for why a deferred
+       job can't use the real thing), styled identically so it doesn't
+       look like a second, different kind of message. #}
+    <div class="alert alert-dismissible fade show alert-success">
+      {{ zenodo_notice.message }}
+    </div>
+  {% endif %}
+  {% set zenodo_pending = h.zenodo_pending_deposition_for_package(pkg) %}
+  {% if zenodo_pending %}
+    {% set zenodo_can_edit = h.check_access('package_update', {'id': pkg.id}) %}
+    {% if zenodo_pending.waiting_for_public %}
+      {% set zenodo_message = _("Uploaded to Zenodo - won't be archived with a public DOI until this dataset itself is made public.") %}
+    {% else %}
+      {% set zenodo_message = _('Being archived on Zenodo - reload this page in a moment to see it.') %}
+    {% endif %}
     <style>
-      .zenodo-resource-list { margin-bottom: 0; }
-      .zenodo-resource-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 14px;
-        border: 1px solid #cfe3ea;
-        border-radius: 4px;
-        background: #f3f9fb;
+      .zenodo-pending-item .heading {
+        color: inherit;
+        cursor: default;
       }
-      .zenodo-badge {
-        flex: 0 0 auto;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        background: #1282b2;
-        color: #fff;
-        font-weight: bold;
-        font-size: 15px;
+      .zenodo-pending-item .description {
+        color: var(--fair3r-color-muted, #6c6c6c);
       }
-      .zenodo-resource-body { flex: 1 1 auto; min-width: 0; }
-      .zenodo-resource-title {
-        display: block;
-        font-weight: 600;
-        color: #205b73;
-      }
-      .zenodo-resource-link:hover .zenodo-resource-title { text-decoration: underline; }
-      .zenodo-sandbox-tag {
-        margin-left: 6px;
-        font-size: 11px;
-        font-weight: normal;
-        text-transform: uppercase;
-        color: #8a6d3b;
-        background: #fcf3cf;
-        padding: 1px 6px;
-        border-radius: 3px;
-      }
-      .zenodo-doi {
-        margin: 2px 0 0;
-        font-size: 12px;
-        color: #555;
-      }
-      .zenodo-doi code { background: none; padding: 0; }
     </style>
-    <ul class="resource-list zenodo-resource-list">
-      <li class="zenodo-resource-item">
-        <span class="zenodo-badge" aria-hidden="true">Z</span>
-        <div class="zenodo-resource-body">
-          {% if zenodo_deposition.record_url %}
-            <a class="zenodo-resource-link" href="{{ zenodo_deposition.record_url }}" target="_blank" rel="noopener">
-              <span class="zenodo-resource-title">
-                {{ _('Data archived on Zenodo') }}
-                {% if zenodo_deposition.is_sandbox %}<span class="zenodo-sandbox-tag">{{ _('sandbox') }}</span>{% endif %}
-              </span>
-            </a>
-          {% else %}
-            <span class="zenodo-resource-title">
-              {{ _('Data pending archive on Zenodo…') }}
-            </span>
+    <ul class="resource-list">
+      {% for filename in zenodo_pending.filenames %}
+        {% set ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'data' %}
+        <li class="resource-item zenodo-pending-item">
+          <span class="heading" title="{{ filename }}">
+            {{ filename }}
+            {# Same sprite-icon mechanism CKAN's own resource_item.html
+               uses (.format-label, data-format=<extension>) - without
+               it the 60px CKAN already reserves on the left for it
+               (.resource-item's own left padding) was just empty
+               space. #}
+            <span class="format-label" data-format="{{ ext }}">{{ ext }}</span>
+          </span>
+          <p class="description">{{ zenodo_message }}</p>
+          {% if zenodo_can_edit %}
+            {# .btn-group is positioned absolutely at top-right by
+               CKAN's own CSS (same spot its "Explore" button sits in
+               on a real resource item) - keeps this on the same line
+               as the heading/description instead of pushing them
+               down. #}
+            <div class="btn-group">
+              <button
+                type="button"
+                class="btn btn-danger btn-sm zenodo-remove-file"
+                data-filename="{{ filename }}"
+              >{{ _('Remove') }}</button>
+            </div>
           {% endif %}
-          {% if zenodo_deposition.doi %}
-            <p class="zenodo-doi">DOI: <code>{{ zenodo_deposition.doi }}</code></p>
-          {% endif %}
-        </div>
-      </li>
+        </li>
+      {% endfor %}
     </ul>
+    {% if zenodo_can_edit and zenodo_pending.filenames %}
+      <script>
+        document.addEventListener("DOMContentLoaded", function () {
+          var $buttons = $(".zenodo-remove-file");
+          if (!$buttons.length) {
+            return;
+          }
+          var packageName = {{ pkg.name | tojson }};
+
+          function csrfFieldName() {
+            return $('meta[name="csrf_field_name"]').attr("content") || null;
+          }
+          function csrfHeaderToken() {
+            var fieldName = csrfFieldName();
+            return fieldName ? $('meta[name="' + fieldName + '"]').attr("content") : null;
+          }
+
+          $(document).on("click", ".zenodo-remove-file", function () {
+            var $button = $(this);
+            var filename = $button.data("filename");
+            if (!window.confirm("{{ _('Remove') }} " + filename + "?")) {
+              return;
+            }
+            $button.prop("disabled", true).text("{{ _('Removing…') }}");
+
+            var xhr = new XMLHttpRequest();
+            xhr.open(
+              "DELETE",
+              "/zenodo/upload/" + encodeURIComponent(packageName) + "/" + encodeURIComponent(filename),
+              true
+            );
+            var csrfToken = csrfHeaderToken();
+            if (csrfToken) {
+              xhr.setRequestHeader("X-CSRFToken", csrfToken);
+            }
+            xhr.onload = function () {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                var $item = $button.closest("li");
+                var $list = $item.closest("ul");
+                $item.remove();
+                if (!$list.find("li").length) {
+                  window.location.reload();
+                }
+              } else {
+                $button.prop("disabled", false).text("{{ _('Remove') }}");
+                window.alert("{{ _('Could not remove the file - try again shortly.') }}");
+              }
+            };
+            xhr.onerror = function () {
+              $button.prop("disabled", false).text("{{ _('Remove') }}");
+              window.alert("{{ _('Network error.') }}");
+            };
+            xhr.send();
+          });
+        });
+      </script>
+    {% endif %}
   {% endif %}
   {{ super() }}
 {% endblock %}

@@ -72,6 +72,51 @@ def test_increment_file_count_on_missing_deposition_returns_none():
     assert ZenodoDepositionQuery.increment_file_count(dataset['id']) is None
 
 
+def test_add_file_records_filename_and_increments_count():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    updated = ZenodoDepositionQuery.add_file(dataset['id'], 'notes.txt')
+
+    assert updated.file_count == 2
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == [
+        'photo.jpg',
+        'notes.txt',
+    ]
+
+
+def test_add_file_same_name_twice_counts_it_once():
+    # Zenodo replaces a file re-uploaded under the same name.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+    updated = ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg')
+
+    assert updated.file_count == 1
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['photo.jpg']
+
+
+def test_add_file_on_missing_deposition_returns_none():
+    dataset = factories.Dataset()
+
+    assert ZenodoDepositionQuery.add_file(dataset['id'], 'photo.jpg') is None
+
+
+def test_list_filenames_defaults_to_empty():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == []
+
+
+def test_list_filenames_without_a_deposition_is_empty():
+    dataset = factories.Dataset()
+
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == []
+
+
 def test_mark_published():
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
@@ -83,6 +128,54 @@ def test_mark_published():
     assert published.published is True
     assert published.zenodo_record_id == 'rec-1'
     assert published.zenodo_record_doi == '10.5281/zenodo.1'
+
+
+def test_set_and_pop_notice():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    ZenodoDepositionQuery.set_notice(dataset['id'], 'published')
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) == 'published'
+    # Only shows once - a second pop finds nothing left.
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) is None
+
+
+def test_pop_notice_commits_the_clear_so_it_survives_a_rollback():
+    """Regression test for a real bug found via live HTTP testing:
+    pop_notice is called from a template helper during a plain
+    dataset-page GET, which never goes through CKAN's own
+    commit_and_remove() the way an action call does. A flush-only clear
+    was only ever visible within that one request's own transaction and
+    got silently rolled back once the request ended, so the very next,
+    separate pageview re-read the same still-set notice and showed it
+    again forever. Simulating "a later request's fresh read" here via
+    an explicit Session.rollback() right after - if the clear wasn't
+    really committed, this would resurrect 'published'."""
+    from ckan.model import Session
+
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.set_notice(dataset['id'], 'published')
+    Session.commit()
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) == 'published'
+    Session.rollback()
+
+    assert ZenodoDepositionQuery.read_package(dataset['id']).pending_notice is None
+
+
+def test_pop_notice_without_one_set_is_none():
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) is None
+
+
+def test_pop_notice_without_a_deposition_is_none():
+    dataset = factories.Dataset()
+
+    assert ZenodoDepositionQuery.pop_notice(dataset['id']) is None
 
 
 def test_delete_package():

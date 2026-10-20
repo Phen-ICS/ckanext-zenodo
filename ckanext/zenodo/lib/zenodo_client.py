@@ -144,7 +144,7 @@ def publish_deposition(deposition_id, access_token, sandbox=False):
 # the published record) until someone with curation rights on the
 # community explicitly accepts it - even when that someone is the same
 # shared account that owns the community. The two calls below close that
-# gap; see publish_guard.py's _accept_pending_community_inclusion for how
+# gap; see publish_guard.py's accept_pending_community_inclusion for how
 # they're used together right after a successful publish.
 
 
@@ -162,3 +162,88 @@ def accept_request(request_id, access_token, sandbox=False):
     request targets (a community, here)."""
     url = f'{base_url(sandbox)}/requests/{request_id}/actions/accept'
     return _request('POST', url, access_token, json={})
+
+
+def request_community_inclusion(
+    record_id, community_identifier, access_token, sandbox=False
+):
+    """Explicitly submits a record for inclusion in a community via the
+    dedicated endpoint, rather than relying on metadata.communities at
+    publish time to trigger it as a side effect - confirmed empirically
+    that the latter only does so for a brand new deposition's *first*
+    publish; publishing a *new version* with metadata.communities
+    merely copied over from the original (see create_new_version above)
+    created no request at all, silently dropping the community
+    association for every version after the first. Safe to call even
+    when this exact record+community is already settled one way or
+    another - Zenodo's own 400 for either "there's already an open
+    request" (confirmed wording) or "the record is already included
+    in this community" (confirmed separately, on a retry after an
+    earlier call of this same function already got it accepted) is
+    swallowed as a harmless no-op, same idea as publish_deposition's
+    own already-published tolerance."""
+    url = f'{base_url(sandbox)}/records/{record_id}/communities'
+    try:
+        return _request(
+            'POST',
+            url,
+            access_token,
+            json={'communities': [{'id': community_identifier}]},
+        )
+    except ZenodoError as e:
+        if 'already an open inclusion request' in str(e) or (
+            'already included in this community' in str(e)
+        ):
+            return None
+        raise
+
+
+# A published Zenodo record is immutable by design (DOIs are meant to be
+# permanent) - there is no "delete a file from a published record"
+# endpoint. Removing a file from an already-published deposition instead
+# means: create a new draft version (a full copy of the latest version's
+# files+metadata), delete the file from *that* draft, then publish it -
+# the old version's own DOI stays frozen and resolvable with its
+# original files forever, while the *concept* DOI (shared by every
+# version, see metadata_mapper... no, see publish_guard.py's
+# _zenodo_record_url, which already points resources at the concept
+# record rather than any one version) starts resolving to this new
+# version instead. Confirmed empirically against the real sandbox: v1
+# published with 2 files, newversion -> draft copy with the same 2
+# files, deleted 1, published as v2 (own new record id/DOI, 1 file) -
+# v1's own record still shows both files afterwards, unchanged, and the
+# concept URL that pointed at v1 now resolves to v2.
+def create_new_version(deposition_id, access_token, sandbox=False):
+    """Creates a new draft version of a published deposition (a copy of
+    its latest version's files/metadata, itself unpublished) - returns
+    the new draft's own deposition dict (its own 'id', 'links.bucket',
+    etc., not the old one's)."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/actions/newversion'
+    return _request('POST', url, access_token)
+
+
+def delete_deposition_file(deposition_id, file_id, access_token, sandbox=False):
+    """Deletes one file from a deposition that is itself still a draft
+    (either a never-yet-published deposition, or a new-version draft
+    from create_new_version() above) - Zenodo rejects this on an
+    already-published deposition. `file_id` is Zenodo's own internal id
+    for that file (from get_deposition()'s `files[].id`), not its
+    filename."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/files/{file_id}'
+    return _request('DELETE', url, access_token)
+
+
+def delete_deposition(deposition_id, access_token, sandbox=False):
+    """Deletes a never-published deposition (draft and its files) -
+    there's no DOI yet, so nothing permanent is lost. Zenodo refuses this
+    on anything already published."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}'
+    return _request('DELETE', url, access_token)
+
+
+def discard_deposition(deposition_id, access_token, sandbox=False):
+    """Discards a pending new-version draft of an already-published
+    deposition (see create_new_version) - the published versions
+    themselves are untouched."""
+    url = f'{base_url(sandbox)}/deposit/depositions/{deposition_id}/actions/discard'
+    return _request('POST', url, access_token)

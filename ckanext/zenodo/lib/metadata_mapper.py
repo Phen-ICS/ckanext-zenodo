@@ -13,6 +13,7 @@ back to a generic value.
 """
 
 import logging
+import re
 
 log = logging.getLogger(__name__)
 
@@ -88,12 +89,78 @@ RESOURCE_TYPE_GENERAL_TO_UPLOAD_TYPE = {
 }
 ZENODO_UPLOAD_TYPE_FALLBACK = 'other'
 
-# Ontology/vocabulary schemes datacite_converter.py itself already
-# recognises for the FDF biological-annotation subjects (see its own
-# _collect_subject_values_by_scheme calls) - appended to a keyword only for
-# these, to keep Zenodo's flat keyword list readable rather than cluttered
-# with every arbitrary subjectScheme value that might appear.
-RECOGNIZED_SUBJECT_SCHEMES = {'NCBITaxon', 'ChEBI', 'DOID', 'UBERON', 'EFO'}
+# subjectScheme values the FDF converter is actually capable of emitting
+# for biological annotations, mapped to one readable label each -
+# confirmed either against a real gene/allele FDF dataset's
+# fdf_output_json directly (NCBITaxon, PATO, speciesBackground,
+# geneAccessionId/geneSymbol, the NCBI/MGI/Ensembl Gene cross-refs,
+# geneChromosomeLocation, geneMutationType, alleleAccessionId/
+# alleleSymbol, MGI/Alliance Allele) or against datacite_converter.py's
+# own "FAIR3R form summary" builder, which documents in its own code
+# exactly what each of ChEBI/DOID/UBERON/EFO represents for this
+# pipeline (treatments, disease models, tissues/organs, diets).
+#
+# Several schemes share a label on purpose: a gene (or allele) cross-
+# referenced across multiple databases produces one subjects entry per
+# database, all naming the *same* real-world gene/allele - mapping them
+# all to the same label lets _split_labeled_subjects' (label, value)
+# dedup collapse e.g. 5 "Apoe" entries (one per database) into a single
+# "Gene: Apoe" line instead of five.
+#
+# This table is deliberately NOT meant to be exhaustive forever: the FDF
+# form is driven by a dynamic JSON schema, so a scheme this pipeline has
+# never seen can appear without a code change here - _subject_label()
+# falls back to _humanize_scheme_label() for anything not listed below,
+# rather than ever downgrading a subject to a plain, unlabeled keyword
+# (that fallback bucket is reserved for the dataset's own CKAN tags now,
+# see map_keywords's own docstring for why).
+SUBJECT_SCHEME_TO_LABEL = {
+    'NCBITaxon': 'Organism',
+    'PATO': 'Sex',
+    'speciesBackground': 'Strain',
+    'Strain': 'Strain',
+    'geneSymbol': 'Gene',
+    'geneName': 'Gene',
+    'geneAccessionId': 'Gene',
+    'NCBI Gene': 'Gene',
+    'MGI Gene': 'Gene',
+    'Ensembl Gene': 'Gene',
+    'geneChromosomeLocation': 'Chromosome location',
+    'geneMutationType': 'Mutation type',
+    'alleleSymbol': 'Allele',
+    'alleleAccessionId': 'Allele',
+    'MGI Allele': 'Allele',
+    'Alliance Allele': 'Allele',
+    'ChEBI': 'Treatment',
+    'treatmentName': 'Treatment',
+    'treatmentProtocol': 'Treatment protocol',
+    'treatmentDesign': 'Treatment design',
+    'DOID': 'Disease model',
+    'UBERON': 'Tissue / organ',
+    'EFO': 'Diet',
+}
+
+
+def _humanize_scheme_label(scheme):
+    """Turns an arbitrary subjectScheme string into a readable label,
+    for any scheme not already in SUBJECT_SCHEME_TO_LABEL above - e.g.
+    "treatmentProtocol" -> "Treatment Protocol". Not guaranteed to read
+    perfectly for every possible scheme string (an acronym glued
+    straight onto a word, e.g. a hypothetical "XYZTaxon", stays glued -
+    there is no way to tell where the acronym ends without already
+    knowing it, which is exactly why the well-known ones above are
+    listed explicitly instead of relying on this), but always something
+    more useful than silently dropping the value or mislabeling it."""
+    if not scheme:
+        return 'Other'
+    spaced = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', scheme)
+    words = spaced.split()
+    return ' '.join(w if w.isupper() else w[:1].upper() + w[1:] for w in words)
+
+
+def _subject_label(scheme):
+    return SUBJECT_SCHEME_TO_LABEL.get(scheme) or _humanize_scheme_label(scheme)
+
 
 _ORCID_SCHEME = 'ORCID'
 _ORCID_URL_PREFIX = 'https://orcid.org/'
@@ -155,19 +222,55 @@ def map_contributor(contributor):
     return mapped
 
 
-def map_keywords(subjects):
-    """DataCite subjects[] -> Zenodo's flat keywords[] list of strings."""
+def map_keywords(tags):
+    """CKAN dataset tags[] (as package_show returns them - a list of
+    {'name': ..., ...} dicts) -> Zenodo's flat keywords[] list of
+    strings.
+
+    Deliberately NOT derived from FDF subjects: those are rich,
+    structured biological annotations, and every one of them gets its
+    own "Label: value" pair instead (see _split_labeled_subjects) -
+    Zenodo's own `keywords` field is free-text search tags, which is
+    exactly what the dataset's own CKAN tags already are, so this just
+    passes them through rather than repurposing the subjects list for
+    a second, different kind of field."""
     keywords = []
+    for tag in tags or []:
+        name = (tag.get('name') or tag.get('display_name') or '').strip()
+        if name:
+            keywords.append(name)
+    return keywords
+
+
+def _split_labeled_subjects(subjects):
+    """Every FDF subject becomes a (label, value) pair - a known
+    biological-annotation category via SUBJECT_SCHEME_TO_LABEL, or
+    _humanize_scheme_label()'s generic fallback for anything else (see
+    _subject_label). Never a plain, unlabeled keyword - see this
+    module's own docstring note on map_keywords for why that bucket is
+    reserved for the dataset's CKAN tags instead.
+
+    Deduplicated by (label, value), case-insensitive, first occurrence
+    kept - a gene (or allele) cross-referenced across several databases
+    legitimately has one `subjects` entry per database, all mapping to
+    the same label and sharing the same text (e.g. "Apoe" five times
+    over), which would otherwise show up as a literal, repeated
+    "Gene: Apoe" five times - same deduplication idea
+    datacite_converter.py itself already applies to the full subjects
+    list for a related reason."""
+    labeled = []
+    seen = set()
     for subject in subjects or []:
         text = (subject.get('subject') or '').strip()
         if not text:
             continue
-        scheme = subject.get('subjectScheme')
-        if scheme in RECOGNIZED_SUBJECT_SCHEMES:
-            keywords.append(f'{text} ({scheme})')
-        else:
-            keywords.append(text)
-    return keywords
+        label = _subject_label(subject.get('subjectScheme'))
+        key = (label, text.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        labeled.append((label, text))
+    return labeled
 
 
 def map_related_identifiers(related_identifiers):
@@ -215,12 +318,32 @@ def map_upload_type(types):
 # Built from only the safest, smallest subset of the confirmed-safe list -
 # headings, bold, an unordered list, plain Unicode emoji as "icons" instead
 # of <img>/inline CSS, since the latter is confirmed stripped anyway.
-def build_zenodo_description_html(datacite_metadata, submitter_display_name):
+def build_zenodo_description_html(
+    datacite_metadata,
+    submitter_display_name,
+    tags=None,
+    source_doi=None,
+    source_doi_url=None,
+):
+    """`tags` is the dataset's own CKAN tags (package_show's `tags`
+    list), not part of the DataCite dict - passed in explicitly by the
+    caller, same reasoning as submitter_display_name below (it's a
+    CKAN-only concept this module has no other way to see).
+    `source_doi` is the FAIR3R dataset's own DataCite DOI (ckanext-doi),
+    linked so a reader landing on Zenodo can get back to the full
+    catalogue record. `source_doi_url` is where that link points
+    (defaults to doi.org - see publish_guard.py for the test-mode case)."""
     submitted_on_behalf_of = (
         '<p><strong>📤 Submitted via the FAIR3R shared account on behalf of:'
         f'</strong> {submitter_display_name}</p>'
     )
     lines = [submitted_on_behalf_of]
+    if source_doi:
+        lines.append(
+            '<p><strong>🔗 FAIR3R dataset:</strong> '
+            f'<a href="{source_doi_url or f"https://doi.org/{source_doi}"}">'
+            f'{source_doi}</a></p>'
+        )
 
     descriptions = datacite_metadata.get('descriptions') or []
     abstract = next(
@@ -240,7 +363,15 @@ def build_zenodo_description_html(datacite_metadata, submitter_display_name):
         if names:
             lines.append(f'<p><strong>🧑‍🔬 Creators:</strong> {names}</p>')
 
-    keywords = map_keywords(datacite_metadata.get('subjects'))
+    labeled_subjects = _split_labeled_subjects(datacite_metadata.get('subjects'))
+    if labeled_subjects:
+        items = ''.join(
+            f'<li><strong>{label}:</strong> {value}</li>'
+            for label, value in labeled_subjects
+        )
+        lines.append(f'<ul>{items}</ul>')
+
+    keywords = map_keywords(tags)
     if keywords:
         items = ''.join(f'<li>{kw}</li>' for kw in keywords)
         lines.append(f'<p><strong>🏷️ Keywords:</strong></p><ul>{items}</ul>')
@@ -259,18 +390,21 @@ def datacite_to_zenodo(
     submitter_display_name,
     community_identifier,
     access_right,
+    tags=None,
     license_id=None,
+    source_doi=None,
+    source_doi_url=None,
 ):
     """Build a Zenodo deposition metadata dict from a
     `DataCiteConverter.fdf_to_datacite()`-shaped dict plus the handful of
     values that dict doesn't carry (the dataset's real CKAN title, who's
-    actually submitting, the target community, access/license - all
-    derived from the CKAN package or plugin config by the caller, not
-    re-derived here)."""
+    actually submitting, the target community, access/license, the
+    dataset's own CKAN tags, its own DataCite DOI - all derived from the
+    CKAN package or plugin config by the caller, not re-derived here)."""
     metadata = {
         'title': title,
         'description': build_zenodo_description_html(
-            datacite_metadata, submitter_display_name
+            datacite_metadata, submitter_display_name, tags, source_doi, source_doi_url
         ),
         'upload_type': map_upload_type(datacite_metadata.get('types')),
         'access_right': access_right,
@@ -294,13 +428,20 @@ def datacite_to_zenodo(
     if contributors:
         metadata['contributors'] = contributors
 
-    keywords = map_keywords(datacite_metadata.get('subjects'))
+    keywords = map_keywords(tags)
     if keywords:
         metadata['keywords'] = keywords
 
     related_identifiers = map_related_identifiers(
         datacite_metadata.get('relatedIdentifiers')
     )
+    # Machine-readable link back to the FAIR3R catalogue record: these
+    # files are part of that dataset. Lets DataCite/Zenodo/OpenAlex
+    # resolve the relation, not just a human reading the description.
+    if source_doi and not any(
+        r['identifier'] == source_doi for r in related_identifiers
+    ):
+        related_identifiers.append({'relation': 'isPartOf', 'identifier': source_doi})
     if related_identifiers:
         metadata['related_identifiers'] = related_identifiers
 

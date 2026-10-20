@@ -4,6 +4,7 @@ shape). Session.get(Model, pk) rather than the legacy Query.get() - same
 SQLAlchemy-2.0-clean style ckanext-citations' model layer already uses.
 """
 
+import json
 from typing import ClassVar
 
 from ckan.model import Session
@@ -90,13 +91,117 @@ class ZenodoDepositionQuery:
         return cls.update_package(package_id, file_count=record.file_count + 1)
 
     @classmethod
-    def mark_published(cls, package_id, zenodo_record_id, zenodo_record_doi):
+    def add_file(cls, package_id, filename):
+        """Records a real uploaded filename, in addition to incrementing
+        file_count - what the upload blueprint actually calls (rather
+        than increment_file_count alone) so the dataset page can list
+        real filenames while the deposition is still unpublished (see
+        lib/helpers.py's zenodo_pending_deposition_for_package).
+
+        A filename already recorded is left as is: re-uploading a file
+        under the same name *replaces* it on Zenodo (bucket API PUT on the
+        same key - confirmed on the sandbox, one file left with the second
+        upload's content), so counting it again would leave file_count
+        and the pending list one file too high."""
+        record = cls.read_package(package_id)
+        if record is None:
+            return None
+        try:
+            filenames = json.loads(record.filenames or '[]')
+        except ValueError:
+            filenames = []
+        if filename in filenames:
+            return record
+        filenames.append(filename)
         return cls.update_package(
             package_id,
-            published=True,
-            zenodo_record_id=zenodo_record_id,
-            zenodo_record_doi=zenodo_record_doi,
+            file_count=record.file_count + 1,
+            filenames=json.dumps(filenames),
         )
+
+    @classmethod
+    def remove_file(cls, package_id, filename):
+        """Reverse of add_file - removes one filename (if present) and
+        decrements file_count to match, e.g. after the user deletes that
+        file (see lib/delete_zenodo_file.py). A no-op (not an error) if
+        the filename isn't actually in the list - deleting twice, or a
+        retried job after a crash right after this step, must not go
+        negative."""
+        record = cls.read_package(package_id)
+        if record is None:
+            return None
+        try:
+            filenames = json.loads(record.filenames or '[]')
+        except ValueError:
+            filenames = []
+        if filename not in filenames:
+            return record
+        filenames.remove(filename)
+        return cls.update_package(
+            package_id,
+            file_count=max(record.file_count - 1, 0),
+            filenames=json.dumps(filenames),
+        )
+
+    @classmethod
+    def list_filenames(cls, package_id):
+        """The real filenames recorded so far for this dataset's
+        deposition, or [] if there's no deposition (or nothing uploaded
+        to it) at all."""
+        record = cls.read_package(package_id)
+        if record is None:
+            return []
+        try:
+            return json.loads(record.filenames or '[]')
+        except ValueError:
+            return []
+
+    @classmethod
+    def mark_published(
+        cls, package_id, zenodo_record_id, zenodo_record_doi, concept_record_id=None
+    ):
+        kwargs = {
+            'published': True,
+            'zenodo_record_id': zenodo_record_id,
+            'zenodo_record_doi': zenodo_record_doi,
+        }
+        if concept_record_id is not None:
+            kwargs['concept_record_id'] = concept_record_id
+        return cls.update_package(package_id, **kwargs)
+
+    @classmethod
+    def set_notice(cls, package_id, notice):
+        """Sets the one-shot notice a deferred job wants shown on the
+        dataset page's next render (see lib/helpers.py's
+        zenodo_notice_for_package) - a plain string, this table's own
+        business, not a DB column enum, so new notice kinds don't need
+        a migration."""
+        return cls.update_package(package_id, pending_notice=notice)
+
+    @classmethod
+    def pop_notice(cls, package_id):
+        """Reads the pending notice and clears it in the same call, so
+        it only ever shows once - returns None if there wasn't one (the
+        common case).
+
+        Explicitly commits the clearing write, unlike every other method
+        here. Confirmed empirically: this is called from a template
+        helper during a plain dataset-page GET, which - unlike an
+        action call (resource_create, package_update, ...) - never goes
+        through CKAN's own action-layer commit_and_remove(). Without a
+        commit here, the UPDATE is only ever visible within this one
+        request's own transaction (which is exactly why it still looked
+        right at the time of the render) and gets silently rolled back
+        once the request ends, so the very next pageview starts a fresh
+        transaction, rereads the same still-'published' row, and shows
+        the same notice again - forever, instead of once."""
+        record = cls.read_package(package_id)
+        if record is None or not record.pending_notice:
+            return None
+        notice = record.pending_notice
+        cls.update_package(package_id, pending_notice=None)
+        Session.commit()
+        return notice
 
     @classmethod
     def delete_package(cls, package_id):

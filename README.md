@@ -76,6 +76,44 @@ unverified assumptions, now settled:
   round-tripping a probe deposition through every plausible tag and
   reading back what Zenodo actually stored).
 
+## When a deposition actually gets published to Zenodo
+
+Same trigger condition as ckanext-doi's own `after_dataset_update`
+(already established in this project, for this exact question, on this
+exact CKAN dataset): the dataset must be **active AND not private**,
+not just active. Minting a Zenodo DOI is a one-way action, same as
+DataCite's own - a dataset that's active but still private never gets
+one yet. The hook fires on every dataset update, not just once right
+after creation, so a dataset created active+private and made public
+only later still gets published the next time it's updated (even just
+toggling that flag) - no catch-up job needed. One consequence: by the
+time a deposition is actually published, the dataset is always already
+public, so Zenodo's `access_right` is always `'open'` - there's no way
+to end up with a stale `'restricted'` record whose CKAN dataset later
+went public without Zenodo ever being told.
+
+## How the published record shows up in CKAN
+
+`publish_guard.py` creates one genuine CKAN **Link resource per file**
+actually uploaded to Zenodo (`url` = the published record's landing
+page, same url for every file in that deposition - no file upload into
+CKAN itself), named after each file's real filename - not a bespoke
+display panel bolted on elsewhere, and not one generic entry for the
+whole deposition either. A real resource needs no template override to
+show up in the normal "Data and Resources" list, and - more importantly
+- gets picked up by anything that already iterates `pkg.resources`
+(ckanext-fair3r's DCAT/schema.org/Croissant export included), which a
+panel outside the resource list never would be. Idempotent by
+(name, url) rather than a new DB column: a retried publish job that
+already created some or all of these resources on an earlier,
+interrupted attempt won't create duplicates.
+
+A minimal notice ("...is being archived on Zenodo - reload this page in
+a moment...") shows instead, in the same "Data and Resources" area,
+for the (usually short) gap between the file reaching Zenodo and the
+publish job above actually running - see `lib/helpers.py`'s
+`zenodo_pending_deposition_for_package()`.
+
 ## Tests
 
 ```shell

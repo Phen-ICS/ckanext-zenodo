@@ -1,13 +1,35 @@
 from ckan import plugins
+from ckan.lib.plugins import DefaultTranslation
 from ckan.plugins import toolkit
 
 from ckanext.zenodo import model
 from ckanext.zenodo.blueprints.zenodo_upload import zenodo_upload
-from ckanext.zenodo.lib.helpers import zenodo_deposition_for_package
+from ckanext.zenodo.cli import get_commands as get_zenodo_commands
+from ckanext.zenodo.lib import lifecycle_guard, xloader_guard
+from ckanext.zenodo.lib.auth import resource_delete as zenodo_resource_delete_auth
+from ckanext.zenodo.lib.delete_zenodo_file import (
+    enqueue_pending_deletions,
+    maybe_delete_published_file,
+)
+from ckanext.zenodo.lib.helpers import (
+    zenodo_delete_impact,
+    zenodo_description_parts,
+    zenodo_notice_for_package,
+    zenodo_pending_deposition_for_package,
+)
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 
+try:
+    from ckanext.xloader.interfaces import IXloader
 
-class ZenodoPlugin(plugins.SingletonPlugin):
+    HAS_XLOADER_INTERFACE = True
+except ImportError:
+    # ckanext-xloader isn't installed - nothing to opt out of, see
+    # xloader_guard.py's own docstring for why this hook exists at all.
+    HAS_XLOADER_INTERFACE = False
+
+
+class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
     """Publishes large or non-tabular dataset files to Zenodo (sandbox or
     production) instead of CKAN storage, mapping FDF metadata into the
     Zenodo deposition. See the project's implementation plan for the full
@@ -16,10 +38,44 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     wiring).
     """
 
+    plugins.implements(plugins.IActions)
+    plugins.implements(plugins.ITranslation)
+    plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IBlueprint)
+    plugins.implements(plugins.IClick)
     plugins.implements(plugins.IPackageController, inherit=True)
+    plugins.implements(plugins.IResourceController, inherit=True)
     plugins.implements(plugins.ITemplateHelpers)
+    # Same conditional pattern ckanext-xloader's own plugin.py uses for
+    # the optional IDataDictionaryForm - a soft dependency, see
+    # xloader_guard.py's own docstring.
+    if HAS_XLOADER_INTERFACE:
+        plugins.implements(IXloader, inherit=True)
+
+    # IActions
+
+    def get_actions(self):
+        return {
+            'dataset_purge': lifecycle_guard.dataset_purge,
+            'package_delete': lifecycle_guard.package_delete,
+            'package_update': lifecycle_guard.package_update,
+        }
+
+    # IAuthFunctions
+
+    def get_auth_functions(self):
+        return {'resource_delete': zenodo_resource_delete_auth}
+
+    if HAS_XLOADER_INTERFACE:
+        # IXloader
+
+        def can_upload(self, resource_id):
+            """Stops xloader from trying to load one of our own
+            Zenodo-backed Link resources into the datastore - see
+            xloader_guard.py's own docstring for why this is needed at
+            all."""
+            return xloader_guard.can_upload(resource_id)
 
     # IConfigurer
 
@@ -35,10 +91,20 @@ class ZenodoPlugin(plugins.SingletonPlugin):
     def get_blueprint(self):
         return [zenodo_upload]
 
+    # IClick
+
+    def get_commands(self):
+        return get_zenodo_commands()
+
     # ITemplateHelpers
 
     def get_helpers(self):
-        return {'zenodo_deposition_for_package': zenodo_deposition_for_package}
+        return {
+            'zenodo_pending_deposition_for_package': zenodo_pending_deposition_for_package,
+            'zenodo_notice_for_package': zenodo_notice_for_package,
+            'zenodo_delete_impact': zenodo_delete_impact,
+            'zenodo_description_parts': zenodo_description_parts,
+        }
 
     # IPackageController
 
@@ -50,3 +116,17 @@ class ZenodoPlugin(plugins.SingletonPlugin):
         implementation plan's reasoning for keeping these separate."""
         maybe_publish_pending_deposition(pkg_dict)
         return pkg_dict
+
+    # IResourceController
+
+    def before_resource_delete(self, context, resource, resources):
+        """Reacts to CKAN's own, already-existing "delete resource"
+        button/action - see lib/delete_zenodo_file.py's own docstring
+        for why this is a deferred RQ job rather than anything done
+        synchronously here."""
+        maybe_delete_published_file(context, resource, resources)
+
+    def after_resource_delete(self, context, resources):
+        """Enqueues the Zenodo side of a deletion noted just above, now
+        that CKAN's own deletion has actually gone through."""
+        enqueue_pending_deletions(context, resources)

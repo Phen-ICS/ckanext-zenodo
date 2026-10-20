@@ -243,3 +243,98 @@ def test_accept_request_hits_accept_action(monkeypatch):
     assert captured['url'].endswith('/requests/req-id/actions/accept')
     assert captured['json'] == {}
     assert result == {'status': 'accepted'}
+
+
+def test_create_new_version_hits_newversion_action(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: (
+            captured.update(method=method, url=url) or {'id': 'new-draft-1'}
+        ),
+    )
+
+    result = zenodo_client.create_new_version(42, 'tok', sandbox=True)
+
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/deposit/depositions/42/actions/newversion')
+    assert result == {'id': 'new-draft-1'}
+
+
+def test_delete_deposition_file_hits_the_files_endpoint(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: captured.update(method=method, url=url) or {},
+    )
+
+    zenodo_client.delete_deposition_file(42, 'file-id-1', 'tok', sandbox=True)
+
+    assert captured['method'] == 'DELETE'
+    assert captured['url'].endswith('/deposit/depositions/42/files/file-id-1')
+
+
+def test_request_community_inclusion_hits_the_communities_endpoint(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, token, **k: (
+            captured.update(method=method, url=url, **k) or {}
+        ),
+    )
+
+    zenodo_client.request_community_inclusion(42, 'fair3r', 'tok', sandbox=True)
+
+    assert captured['method'] == 'POST'
+    assert captured['url'].endswith('/records/42/communities')
+    assert captured['json'] == {'communities': [{'id': 'fair3r'}]}
+
+
+def test_request_community_inclusion_swallows_an_already_open_request(monkeypatch):
+    def already_open(*a, **k):
+        raise zenodo_client.ZenodoError(
+            'Zenodo returned 400: {"errors": [{"message": '
+            '"There is already an open inclusion request for this community."}]}'
+        )
+
+    monkeypatch.setattr(zenodo_client, '_request', already_open)
+
+    # Must not raise.
+    result = zenodo_client.request_community_inclusion(
+        42, 'fair3r', 'tok', sandbox=True
+    )
+
+    assert result is None
+
+
+def test_request_community_inclusion_swallows_an_already_included_record(monkeypatch):
+    # Confirmed empirically against the real sandbox: a retry after an
+    # earlier call of this same function already got the request
+    # accepted gets this different wording, not the "already open
+    # request" one.
+    def already_included(*a, **k):
+        raise zenodo_client.ZenodoError(
+            'Zenodo returned 400: {"errors":[{"community_id":"fair3r",'
+            '"message":"The record is already included in this community."}]}'
+        )
+
+    monkeypatch.setattr(zenodo_client, '_request', already_included)
+
+    result = zenodo_client.request_community_inclusion(
+        42, 'fair3r', 'tok', sandbox=True
+    )
+
+    assert result is None
+
+
+def test_request_community_inclusion_reraises_other_errors(monkeypatch):
+    def other_error(*a, **k):
+        raise zenodo_client.ZenodoError('Zenodo returned 500: boom')
+
+    monkeypatch.setattr(zenodo_client, '_request', other_error)
+
+    with pytest.raises(zenodo_client.ZenodoError):
+        zenodo_client.request_community_inclusion(42, 'fair3r', 'tok', sandbox=True)

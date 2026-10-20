@@ -4,6 +4,7 @@ toolkit.enqueue_job and zenodo_client are both monkeypatched - no real
 RQ job, no real network."""
 
 import pytest
+from ckan.plugins import toolkit
 from ckan.tests import factories
 
 from ckanext.zenodo.lib import publish_guard, zenodo_client
@@ -23,8 +24,8 @@ def enqueued(monkeypatch):
     return calls
 
 
-def _pkg_dict(package_id, state='active', type_='dataset'):
-    return {'id': package_id, 'type': type_, 'state': state}
+def _pkg_dict(package_id, state='active', type_='dataset', private=False):
+    return {'id': package_id, 'type': type_, 'state': state, 'private': private}
 
 
 def test_non_dataset_type_is_ignored(enqueued):
@@ -72,6 +73,43 @@ def test_empty_deposition_is_never_published(enqueued):
     publish_guard.maybe_publish_pending_deposition(_pkg_dict(dataset['id']))
 
     assert enqueued == []
+
+
+def test_private_active_dataset_is_not_published_yet(enqueued):
+    # Same trigger condition as ckanext-doi's own after_dataset_update:
+    # active AND not private, not just active - a DOI (Zenodo's same as
+    # DataCite's) is a one-way action, so a dataset that's active but
+    # still private should never get one yet.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    publish_guard.maybe_publish_pending_deposition(
+        _pkg_dict(dataset['id'], private=True)
+    )
+
+    assert enqueued == []
+
+
+def test_dataset_made_public_later_gets_published_then(enqueued):
+    # The hook fires on every update, not just draft -> active - a
+    # dataset created active+private and made public only later must
+    # still get published the next time it's updated, not be stuck
+    # forever just because the publish job never ran right after
+    # creation.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    publish_guard.maybe_publish_pending_deposition(
+        _pkg_dict(dataset['id'], private=True)
+    )
+    assert enqueued == []
+
+    publish_guard.maybe_publish_pending_deposition(
+        _pkg_dict(dataset['id'], private=False)
+    )
+    assert len(enqueued) == 1
 
 
 def test_pending_deposition_with_files_is_enqueued(enqueued):
@@ -161,7 +199,14 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
     monkeypatch.setattr(
         zenodo_client,
         'publish_deposition',
-        lambda *a, **k: {'id': 'rec-1', 'doi': '10.5281/zenodo.1'},
+        lambda *a, **k: {
+            'id': 'rec-1',
+            'doi': '10.5281/zenodo.1',
+            'files': [{'filename': 'results.csv'}],
+        },
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
     )
     monkeypatch.setattr(
         zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
@@ -173,6 +218,123 @@ def test_publish_deposition_marks_published_on_success(monkeypatch):
     assert record.published is True
     assert record.zenodo_record_id == 'rec-1'
     assert record.zenodo_record_doi == '10.5281/zenodo.1'
+
+    pkg = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    resources = pkg['resources']
+    assert len(resources) == 1
+    # Concept-record base URL plus a per-file ?preview_file= so "Go to
+    # resource" opens straight to this file - see
+    # publish_guard._zenodo_file_preview_url.
+    assert (
+        resources[0]['url']
+        == 'https://sandbox.zenodo.org/records/rec-1?preview_file=results.csv'
+    )
+    # The resource is named after the real uploaded file, not a generic
+    # "Archived on Zenodo" - see test_create_zenodo_resources_* below.
+    assert resources[0]['name'] == 'results.csv'
+    assert resources[0]['format'] == 'CSV'
+    assert '10.5281/zenodo.1' in resources[0]['description']
+
+
+def test_publish_deposition_marks_published_before_creating_resources(monkeypatch):
+    # Regression test for a real bug found via live testing: xloader's
+    # own IXloader.can_upload hook (xloader_guard.py) fires
+    # *synchronously* inside resource_create below, and decides "is
+    # this one of ours?" by reading this row's own concept_record_id
+    # back from the DB. mark_published used to run *after*
+    # _create_zenodo_resources, so concept_record_id was still None at
+    # the exact moment xloader checked on a dataset's very first
+    # publish - can_upload saw nothing to recognize and let xloader try
+    # (and fail) to load the Zenodo landing page as CSV data. Confirmed
+    # directly against the real DEV container: a fresh "test (Copie
+    # N)" first publish reliably reproduced this, while a *second*
+    # publish of an already-published dataset never did (concept_record_id
+    # was already set by its own first publish, masking the bug) -
+    # this test targets the first-publish case specifically.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    monkeypatch.setattr(zenodo_client, 'update_deposition_metadata', lambda *a, **k: {})
+    monkeypatch.setattr(
+        zenodo_client,
+        'publish_deposition',
+        lambda *a, **k: {
+            'id': 'rec-1',
+            'conceptrecid': 'concept-1',
+            'doi': '10.5281/zenodo.1',
+            'files': [{'filename': 'results.csv'}],
+        },
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
+    )
+
+    seen_concept_record_id = {}
+    real_get_action = toolkit.get_action
+
+    def spying_get_action(name):
+        action = real_get_action(name)
+        if name != 'resource_create':
+            return action
+
+        def _spy(context, data_dict, **kw):
+            record = ZenodoDepositionQuery.read_package(dataset['id'])
+            seen_concept_record_id['value'] = (
+                record.concept_record_id if record else None
+            )
+            return action(context, data_dict, **kw)
+
+        return _spy
+
+    monkeypatch.setattr(publish_guard.toolkit, 'get_action', spying_get_action)
+
+    publish_guard._publish_deposition(dataset['id'])
+
+    assert seen_concept_record_id['value'] == 'concept-1'
+
+
+def test_publish_deposition_resource_url_uses_the_concept_record(monkeypatch):
+    # Not the version's own record id - the concept record's own url is
+    # what stays correct forever across later versions (see
+    # publish_guard._zenodo_record_url's own docstring, confirmed
+    # empirically against the real sandbox).
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+
+    monkeypatch.setattr(zenodo_client, 'update_deposition_metadata', lambda *a, **k: {})
+    monkeypatch.setattr(
+        zenodo_client,
+        'publish_deposition',
+        lambda *a, **k: {
+            'id': 'rec-1',
+            'conceptrecid': 'concept-1',
+            'doi': '10.5281/zenodo.1',
+            'files': [{'filename': 'results.csv'}],
+        },
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        zenodo_client, 'list_record_requests', lambda *a, **k: {'hits': {'hits': []}}
+    )
+
+    publish_guard._publish_deposition(dataset['id'])
+
+    pkg = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert (
+        pkg['resources'][0]['url']
+        == 'https://sandbox.zenodo.org/records/concept-1?preview_file=results.csv'
+    )
 
 
 def test_publish_deposition_leaves_unpublished_on_zenodo_error(monkeypatch):
@@ -213,8 +375,217 @@ def test_publish_deposition_handles_missing_package():
     publish_guard._publish_deposition('does-not-exist')
 
 
+def test_create_zenodo_resources_one_per_file():
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    files = [{'filename': 'photo.jpg'}, {'filename': 'notes.txt'}]
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    resources = {r['name']: r for r in pkg_dict['resources']}
+    assert set(resources) == {'photo.jpg', 'notes.txt'}
+    # Same deposition/record base URL, but each with its own
+    # ?preview_file= - not identical across files.
+    assert (
+        resources['photo.jpg']['url']
+        == 'https://sandbox.zenodo.org/records/rec-1?preview_file=photo.jpg'
+    )
+    assert (
+        resources['notes.txt']['url']
+        == 'https://sandbox.zenodo.org/records/rec-1?preview_file=notes.txt'
+    )
+    assert resources['photo.jpg']['format'] == 'JPEG'
+    assert resources['notes.txt']['format'] == 'TXT'
+
+
+def test_create_zenodo_resources_acts_as_the_site_user(monkeypatch):
+    # Regression test: resource_create -> package_update fires CKAN's
+    # activity-tracking signal, which needs context['user'] to resolve to
+    # a *real* user - plain ignore_auth alone raised
+    # ValidationError({'user_id': ['User not found']}) from deep inside
+    # resource_create when this ran as an RQ job (no web request, no
+    # "current user" at all), confirmed against the real DEV container.
+    # Checked here by intercepting resource_create's own context rather
+    # than round-tripping through the activity table - this test
+    # environment's `activity` table schema is missing a column core
+    # CKAN's current Activity model expects (a pre-existing, unrelated
+    # test-DB migration gap), so querying it directly isn't reliable here.
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    site_user = toolkit.get_action('get_site_user')({'ignore_auth': True}, {})
+
+    real_get_action = toolkit.get_action
+    captured = {}
+
+    def spying_get_action(name):
+        action = real_get_action(name)
+        if name != 'resource_create':
+            return action
+
+        def _spy(context, data_dict, **kw):
+            captured['user'] = context.get('user')
+            return action(context, data_dict, **kw)
+
+        return _spy
+
+    monkeypatch.setattr(publish_guard.toolkit, 'get_action', spying_get_action)
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'rec-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        True,
+        [{'filename': 'photo.jpg'}],
+    )
+
+    assert captured.get('user') == site_user['name']
+
+
+def test_create_zenodo_resources_idempotent_by_name():
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    files = [{'filename': 'photo.jpg'}]
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
+    )
+    # Simulates a retried publish job: pkg_dict now reflects the resource
+    # the first call already created.
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+
+
+def test_create_zenodo_resources_resyncs_the_preview_of_an_existing_resource():
+    # A later republish (e.g. a file added to or removed from an
+    # already-published deposition) mints a new record_id for every
+    # file, including ones that already have a resource from an
+    # earlier publish - their own media preview (tied to that specific
+    # record_id, see media_preview.py) must still be kept fresh, even
+    # though no new resource is created for them.
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    files = [{'filename': 'photo.jpg'}]
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, files
+    )
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    resource_id = pkg_dict['resources'][0]['id']
+    views = toolkit.get_action('resource_view_list')(
+        {'ignore_auth': True}, {'id': resource_id}
+    )
+    assert views[0]['image_url'] == (
+        'https://sandbox.zenodo.org/api/records/rec-1/files/photo.jpg/content'
+    )
+
+    # Same concept record, but a *new* record_id - as happens on a real
+    # republish.
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-2', '10.5281/zenodo.1', True, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+    views = toolkit.get_action('resource_view_list')(
+        {'ignore_auth': True}, {'id': resource_id}
+    )
+    assert views[0]['image_url'] == (
+        'https://sandbox.zenodo.org/api/records/rec-2/files/photo.jpg/content'
+    )
+
+
+def test_create_zenodo_resources_noop_without_a_record_id():
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict, None, 'rec-1', '10.5281/zenodo.1', True, [{'filename': 'photo.jpg'}]
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert pkg_dict['resources'] == []
+
+
+def test_create_zenodo_resources_noop_without_files():
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, []
+    )
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'rec-1', 'rec-1', '10.5281/zenodo.1', True, None
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert pkg_dict['resources'] == []
+
+
+def test_create_zenodo_resources_swallows_failures(monkeypatch):
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    def failing_get_action(name):
+        def _boom(*a, **k):
+            raise toolkit.ValidationError({'url': ['boom']})
+
+        return _boom
+
+    monkeypatch.setattr(publish_guard.toolkit, 'get_action', failing_get_action)
+
+    # Must not raise - a failure here never undoes the already-minted DOI.
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'rec-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        True,
+        [{'filename': 'photo.jpg'}],
+    )
+
+
 def test_accept_pending_community_inclusion_accepts_the_open_request(monkeypatch):
     calls = []
+    monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
+    )
     monkeypatch.setattr(
         zenodo_client,
         'list_record_requests',
@@ -237,12 +608,15 @@ def test_accept_pending_community_inclusion_accepts_the_open_request(monkeypatch
         lambda request_id, *a, **k: calls.append(request_id),
     )
 
-    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
 
     assert calls == ['req-1']
 
 
 def test_accept_pending_community_inclusion_noop_when_none_open(monkeypatch):
+    monkeypatch.setattr(
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: None
+    )
     monkeypatch.setattr(
         zenodo_client,
         'list_record_requests',
@@ -253,7 +627,7 @@ def test_accept_pending_community_inclusion_noop_when_none_open(monkeypatch):
         zenodo_client, 'accept_request', lambda *a, **k: calls.append(1)
     )
 
-    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
 
     assert calls == []
 
@@ -261,23 +635,23 @@ def test_accept_pending_community_inclusion_noop_when_none_open(monkeypatch):
 def test_accept_pending_community_inclusion_noop_without_record_id(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        zenodo_client, 'list_record_requests', lambda *a, **k: calls.append(1)
+        zenodo_client, 'request_community_inclusion', lambda *a, **k: calls.append(1)
     )
 
-    publish_guard._accept_pending_community_inclusion(None, 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion(None, 'tok', True, 'pkg-1')
 
     assert calls == []
 
 
 def test_accept_pending_community_inclusion_swallows_zenodo_error(monkeypatch):
-    def failing_list(*a, **k):
+    def failing_request(*a, **k):
         raise zenodo_client.ZenodoError('boom')
 
-    monkeypatch.setattr(zenodo_client, 'list_record_requests', failing_list)
+    monkeypatch.setattr(zenodo_client, 'request_community_inclusion', failing_request)
 
     # Must not raise - a failure here never rolls back the already-minted
     # DOI/publish.
-    publish_guard._accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
+    publish_guard.accept_pending_community_inclusion('rec-1', 'tok', True, 'pkg-1')
     # No exception raised - that's the whole assertion.
 
 
@@ -301,3 +675,112 @@ def test_hook_fires_on_a_real_draft_to_active_transition(enqueued):
     assert len(enqueued) == 1
     _fn, kwargs = enqueued[0]
     assert kwargs == {'package_id': dataset['id']}
+
+
+@pytest.mark.parametrize(
+    ('sandbox', 'expected_link'),
+    [
+        # 10.5072 is DataCite's test prefix: doi.org doesn't resolve it.
+        (True, 'https://sandbox.zenodo.org/records/concept-1'),
+        (False, 'https://doi.org/10.5281/zenodo.1'),
+    ],
+)
+def test_resource_description_links_the_doi(sandbox, expected_link):
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'concept-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        sandbox,
+        [{'filename': 'notes.txt'}],
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert (
+        f'[10.5281/zenodo.1]({expected_link})'
+        in pkg_dict['resources'][0]['description']
+    )
+
+
+def test_files_archive_url():
+    dataset = factories.Dataset()
+    assert publish_guard.files_archive_url(dataset['id']) is None
+
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/b')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.zip')
+    assert publish_guard.files_archive_url(dataset['id']) is None  # not published
+
+    ZenodoDepositionQuery.mark_published(
+        dataset['id'], 'rec-2', '10.5281/zenodo.2', concept_record_id='concept-1'
+    )
+    assert publish_guard.files_archive_url(dataset['id']) == (
+        'https://sandbox.zenodo.org/api/records/rec-2/files-archive'
+    )
+
+
+def test_existing_resource_description_follows_the_concept_doi():
+    # A resource created by an earlier version's publish (showing that
+    # version's own DOI) is brought up to date on the next publish.
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    files = [{'filename': 'notes.txt'}]
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'concept-1', 'rec-1', '10.5281/zenodo.1', False, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    publish_guard._create_zenodo_resources(
+        pkg_dict, 'concept-1', 'rec-2', '10.5281/zenodo.99', False, files
+    )
+
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+    assert '10.5281/zenodo.99' in pkg_dict['resources'][0]['description']
+
+
+def test_resource_size_follows_the_zenodo_file():
+    # Zenodo's legacy API reports filesize as a float (e.g. 11.0).
+    dataset = factories.Dataset()
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'concept-1',
+        'rec-1',
+        '10.5281/zenodo.1',
+        False,
+        [{'filename': 'notes.txt', 'filesize': 11.0}],
+    )
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert pkg_dict['resources'][0]['size'] == 11
+
+    # Re-uploaded under the same name in a later version: new size.
+    publish_guard._create_zenodo_resources(
+        pkg_dict,
+        'concept-1',
+        'rec-2',
+        '10.5281/zenodo.1',
+        False,
+        [{'filename': 'notes.txt', 'filesize': 2048}],
+    )
+    pkg_dict = toolkit.get_action('package_show')(
+        {'ignore_auth': True}, {'id': dataset['id']}
+    )
+    assert len(pkg_dict['resources']) == 1
+    assert pkg_dict['resources'][0]['size'] == 2048
