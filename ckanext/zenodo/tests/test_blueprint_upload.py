@@ -557,3 +557,28 @@ def test_delete_pending_unknown_filename_returns_404(app):
     response = _delete(app, dataset['name'], 'nope.zip', token=user['token'])
 
     assert response.status_code == 404
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.sandbox_access_token', '')
+def test_upload_without_a_token_is_refused_clearly(app, fake_zenodo):
+    user = factories.SysadminWithToken()
+    org = factories.Organization()
+    dataset = factories.Dataset(owner_org=org['id'])
+
+    response = _upload(app, dataset['name'], 'archive.zip', b'x' * 10, user['token'])
+
+    assert response.status_code == 503
+    assert "isn't set up" in response.json['error']['message']
+    assert fake_zenodo['created'] == []
+    assert fake_zenodo['uploaded'] == []
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.sandbox_access_token', '')
+def test_upload_capacity_without_a_token(app):
+    user = factories.SysadminWithToken()
+
+    response = app.get(
+        '/zenodo/upload-capacity', headers={'Authorization': user['token']}
+    )
+
+    assert response.status_code == 503

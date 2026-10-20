@@ -28,9 +28,9 @@ def run_checks():
     site = 'sandbox.zenodo.org' if sandbox else 'zenodo.org'
     key = 'sandbox_access_token' if sandbox else 'access_token'
 
-    token = zenodo_config.access_token(sandbox)
-    if not token:
+    if not zenodo_config.is_configured(sandbox):
         return done(False, f'ckanext.zenodo.{key} is not set ({site} mode)')
+    token = zenodo_config.access_token(sandbox)
     done(True, f'Token set for {site} (ckanext.zenodo.{key})')
 
     try:

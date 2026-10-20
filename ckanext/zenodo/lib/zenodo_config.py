@@ -52,14 +52,27 @@ def sandbox_mode():
     return toolkit.asbool(toolkit.config.get('ckanext.zenodo.test_mode', True))
 
 
-def access_token(sandbox=None):
+def access_token_key(sandbox=None):
+    """The setting holding the token for this mode."""
     if sandbox is None:
         sandbox = sandbox_mode()
-    key = (
+    return (
         'ckanext.zenodo.sandbox_access_token'
         if sandbox
         else 'ckanext.zenodo.access_token'
     )
+
+
+def is_configured(sandbox=None):
+    """Whether a token is set for this mode. Without one the plugin stays
+    out of the way: no routing to Zenodo (files stay in CKAN), uploads to
+    it refused with a clear message - rather than every non-tabular
+    upload failing."""
+    return bool(toolkit.config.get(access_token_key(sandbox)))
+
+
+def access_token(sandbox=None):
+    key = access_token_key(sandbox)
     token = toolkit.config.get(key)
     if not token:
         raise RuntimeError(f'{key} is not configured')
@@ -149,7 +162,12 @@ def routing_config_dict():
     `h.zenodo_routing_config_json()`, since CKAN has no
     `h.helper_available(...)` to check for a *possibly-unloaded* other
     plugin's helper before calling it from a template - see the
-    implementation plan's cross-extension notes."""
+    implementation plan's cross-extension notes.
+
+    None without a token (see is_configured): nothing is routed to
+    Zenodo then."""
+    if not is_configured():
+        return None
     return {
         'max_resource_size_bytes': ckan_max_resource_size_bytes(),
         'xloader_formats': xloader_formats(),
