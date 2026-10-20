@@ -129,3 +129,11 @@ msgstr "Impossible de supprimer le fichier - réessayez dans un instant."
 msgid "Network error."
 msgstr "Erreur réseau."
 
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:47
+msgid ""
+"Archiving on Zenodo keeps failing - please contact the site "
+"administrators."
+msgstr ""
+"L'archivage sur Zenodo échoue à répétition - veuillez contacter les "
+"administrateurs du site."
+

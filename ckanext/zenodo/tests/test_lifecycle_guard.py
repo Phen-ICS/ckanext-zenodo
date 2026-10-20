@@ -137,14 +137,19 @@ def test_making_private_a_dataset_not_on_zenodo_does_not_warn(app):
     assert messages == []
 
 
-def _pending(private=False, minutes_old=60):
+def _pending(private=False, minutes_old=60, attempts=0):
     org = factories.Organization()
     dataset = factories.Dataset(owner_org=org['id'], private=private)
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
     ZenodoDepositionQuery.add_file(dataset['id'], 'a.zip')
     model.Session.query(ZenodoDeposition).filter(
         ZenodoDeposition.package_id == dataset['id']
-    ).update({'updated': datetime.now(timezone.utc) - timedelta(minutes=minutes_old)})
+    ).update(
+        {
+            'updated': datetime.now(timezone.utc) - timedelta(minutes=minutes_old),
+            'publish_attempts': attempts,
+        }
+    )
     model.repo.commit()
     return dataset
 
@@ -158,6 +163,30 @@ def test_retry_pending_requeues_only_stuck_public_datasets(enqueued):
 
     assert result.exit_code == 0, result.output
     assert [kwargs for _, kwargs in enqueued] == [{'package_id': stuck['id']}]
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.max_publish_attempts', '3')
+def test_retry_pending_gives_up_after_max_publish_attempts(enqueued):
+    retried = _pending(attempts=2)
+    given_up = _pending(attempts=3)
+
+    result = CliRunner().invoke(cli.retry_pending, [])
+
+    assert result.exit_code == 0, result.output
+    assert [kwargs for _, kwargs in enqueued] == [{'package_id': retried['id']}]
+    assert f'Not retried: {given_up["name"]}' in result.output
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.max_publish_attempts', '3')
+def test_retry_pending_include_failed_starts_the_count_again(enqueued):
+    given_up = _pending(attempts=5)
+
+    result = CliRunner().invoke(cli.retry_pending, ['--include-failed'])
+
+    assert result.exit_code == 0, result.output
+    assert [kwargs for _, kwargs in enqueued] == [{'package_id': given_up['id']}]
+    record = ZenodoDepositionQuery.read_package(given_up['id'])
+    assert record.publish_attempts == 0
 
 
 def test_retry_pending_respects_the_limit(enqueued):

@@ -63,6 +63,11 @@ zenodo_deposition_table = Table(
     # to. Read-and-cleared the next time the dataset page renders, so
     # it shows exactly once, whenever that next render happens to be.
     Column('pending_notice', types.UnicodeText, nullable=True),
+    # Publish jobs run since the last successful publish - counted when
+    # each one starts, so a job that crashes counts too. Past
+    # ckanext.zenodo.max_publish_attempts, retry-pending stops re-queueing
+    # it and the dataset page says the archiving keeps failing.
+    Column('publish_attempts', Integer, nullable=False, default=0),
     Column('created', types.DateTime, nullable=False, default=_utcnow),
     Column(
         'updated', types.DateTime, nullable=False, default=_utcnow, onupdate=_utcnow

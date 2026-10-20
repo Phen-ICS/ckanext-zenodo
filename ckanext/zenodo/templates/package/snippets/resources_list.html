@@ -43,6 +43,8 @@
     {% set zenodo_can_edit = h.check_access('package_update', {'id': pkg.id}) %}
     {% if zenodo_pending.waiting_for_public %}
       {% set zenodo_message = _("Uploaded to Zenodo - won't be archived with a public DOI until this dataset itself is made public.") %}
+    {% elif zenodo_pending.publish_failed %}
+      {% set zenodo_message = _('Archiving on Zenodo keeps failing - please contact the site administrators.') %}
     {% else %}
       {% set zenodo_message = _('Being archived on Zenodo - reload this page in a moment to see it.') %}
     {% endif %}

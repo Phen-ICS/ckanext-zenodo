@@ -103,3 +103,9 @@ msgstr ""
 msgid "Network error."
 msgstr ""
 
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:47
+msgid ""
+"Archiving on Zenodo keeps failing - please contact the site "
+"administrators."
+msgstr ""
+

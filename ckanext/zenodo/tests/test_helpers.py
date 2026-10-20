@@ -37,6 +37,7 @@ def test_unpublished_deposition_on_a_public_dataset_is_waiting_on_the_job():
 
     assert zenodo_pending_deposition_for_package(dataset) == {
         'waiting_for_public': False,
+        'publish_failed': False,
         'filenames': ['photo.jpg'],
     }
 
@@ -53,6 +54,7 @@ def test_unpublished_deposition_on_a_private_dataset_is_waiting_on_visibility():
 
     assert zenodo_pending_deposition_for_package(dataset) == {
         'waiting_for_public': True,
+        'publish_failed': False,
         'filenames': ['photo.jpg', 'notes.txt'],
     }
 
@@ -76,6 +78,7 @@ def test_unpublished_deposition_excludes_filenames_that_already_have_a_resource(
     assert resource['name'] == 'photo.jpg'
     assert zenodo_pending_deposition_for_package(pkg_dict) == {
         'waiting_for_public': False,
+        'publish_failed': False,
         'filenames': ['new-file.txt'],
     }
 
@@ -172,3 +175,16 @@ def test_description_parts_splits_a_zenodo_description(description, expected):
 )
 def test_description_parts_leaves_anything_else_to_ckan(description):
     assert zenodo_description_parts(description) is None
+
+
+@pytest.mark.ckan_config('ckanext.zenodo.max_publish_attempts', '3')
+@pytest.mark.parametrize('attempts, failed', [(2, False), (3, True)])
+def test_pending_deposition_says_when_publishing_keeps_failing(attempts, failed):
+    dataset = factories.Dataset(private=False)
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.zip')
+    ZenodoDepositionQuery.update_package(dataset['id'], publish_attempts=attempts)
+
+    result = zenodo_pending_deposition_for_package(dataset)
+
+    assert result['publish_failed'] is failed
