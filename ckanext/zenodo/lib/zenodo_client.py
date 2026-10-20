@@ -18,6 +18,7 @@ same pattern as openalex_client.py/datacite_events_client.py.
 
 import logging
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -122,8 +123,11 @@ def upload_file_to_bucket(bucket_url, filename, file_obj, access_token):
     points at the right instance (sandbox or production), so there's no
     separate `sandbox` argument here. `requests` reads file-like objects
     incrementally itself; nothing here buffers the whole file into
-    memory."""
-    url = f'{bucket_url.rstrip("/")}/{filename}'
+    memory.
+
+    The filename is percent-encoded as one path segment: left raw, `#`
+    or `?` in it end the path (`data#1.csv` was stored as `data`)."""
+    url = f'{bucket_url.rstrip("/")}/{quote(filename, safe="")}'
     return _request('PUT', url, access_token, data=file_obj, timeout=UPLOAD_TIMEOUT)
 
 

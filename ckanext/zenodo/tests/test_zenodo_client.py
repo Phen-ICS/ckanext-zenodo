@@ -338,3 +338,28 @@ def test_request_community_inclusion_reraises_other_errors(monkeypatch):
 
     with pytest.raises(zenodo_client.ZenodoError):
         zenodo_client.request_community_inclusion(42, 'fair3r', 'tok', sandbox=True)
+
+
+@pytest.mark.parametrize(
+    'filename, key',
+    [
+        ('data#1.csv', 'data%231.csv'),
+        ('what?.csv', 'what%3F.csv'),
+        ('test (Copie).csv', 'test%20%28Copie%29.csv'),
+        ('résultats.csv', 'r%C3%A9sultats.csv'),
+    ],
+)
+def test_upload_file_to_bucket_encodes_the_filename(monkeypatch, filename, key):
+    # Raw, '#' or '?' would end the path: 'data#1.csv' was stored as 'data'.
+    calls = []
+    monkeypatch.setattr(
+        zenodo_client,
+        '_request',
+        lambda method, url, *a, **k: calls.append((method, url)) or {},
+    )
+
+    zenodo_client.upload_file_to_bucket(
+        'https://example.test/files/b1/', filename, b'x', 'tok'
+    )
+
+    assert calls == [('PUT', f'https://example.test/files/b1/{key}')]
