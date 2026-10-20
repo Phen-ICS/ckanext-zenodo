@@ -10,17 +10,16 @@ dataset stays published in the FAIR3R catalogue (full FDF metadata,
 searchable) with a link to the Zenodo DOI for the actual data, instead of
 carrying the file itself.
 
-## Status
+## Documentation
 
-Work in progress, built in staged merge requests. See the implementation
-plan for the full design (file flow, data model, metadata mapping,
-anti-abuse hardening, staged delivery order) - ask in the project chat for
-the current plan reference if you don't have it to hand.
+The full specification - architecture, every workflow step by step,
+metadata mapping, security, configuration and operations, and the Zenodo
+API behaviour it relies on - is in [docs/](docs/README.md).
 
-Routing rule (once implemented): a file goes to Zenodo instead of CKAN
-storage when it's larger than `ckan.max_resource_size`, or its format isn't
-one `ckanext.xloader.formats` can read - or whenever the user explicitly
-asks for Zenodo regardless of size/format.
+Routing rule: a file goes to Zenodo instead of CKAN storage when it's
+larger than `ckan.max_resource_size`, or its format isn't one
+`ckanext.xloader.formats` can read - or whenever the user explicitly asks
+for Zenodo regardless of size/format.
 
 ## Relationship to ckanext-fair3r
 
