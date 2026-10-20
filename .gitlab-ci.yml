@@ -85,24 +85,22 @@ build:package:
       dotenv: build.env
 
 # Starts the integration deploy and tests in fair3r-docker-alt on each MR.
-# Disabled until the plugin is actually wired into fair3r-docker-alt's
-# Ansible roles/CI (not part of the Stage 0 scaffold).
-# trigger:fair3r-docker-alt:integration:
-#   stage: publish
-#   needs:
-#     - job: build:package
-#   rules:
-#     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-#       when: on_success
-#     - when: never
-#   variables:
-#     ZENODO_PLUGIN_REF: $CI_COMMIT_REF_NAME
-#     ZENODO_BUILD_JOB_ID: $BUILD_JOB_ID
-#     CI_MERGE_REQUEST_IID: $CI_MERGE_REQUEST_IID
-#   trigger:
-#     project: ics/fair3r-docker-alt
-#     branch: main
-#     strategy: depend
+trigger:fair3r-docker-alt:integration:
+  stage: publish
+  needs:
+    - job: build:package
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_success
+    - when: never
+  variables:
+    ZENODO_PLUGIN_REF: $CI_COMMIT_REF_NAME
+    ZENODO_BUILD_JOB_ID: $BUILD_JOB_ID
+    CI_MERGE_REQUEST_IID: $CI_MERGE_REQUEST_IID
+  trigger:
+    project: ics/fair3r-docker-alt
+    branch: main
+    strategy: depend
 
 # Publishes to the public PyPI on every push to main. Needs the masked
 # PYPI_API_TOKEN CI/CD variable. version:check guarantees each merge carries a
