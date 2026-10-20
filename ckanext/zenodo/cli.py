@@ -142,3 +142,19 @@ def retry_pending(limit, min_age, include_failed):
             title=f'ckanext-zenodo retry-pending: publish {package_id}',
         )
     click.echo(f'Re-queued {len(package_ids)} pending Zenodo publish(es).')
+
+
+@zenodo.command(name='check')
+def check():
+    """Checks the Zenodo token and community against Zenodo itself - run
+    it after changing them, or at the end of a deploy. Exits 1 on the
+    first problem."""
+    from ckanext.zenodo.lib.config_check import run_checks
+
+    results = run_checks()
+    for ok, message in results:
+        click.secho(
+            f'{"OK  " if ok else "FAIL"} {message}', fg='green' if ok else 'red'
+        )
+    if not all(ok for ok, _message in results):
+        raise click.exceptions.Exit(1)

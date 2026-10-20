@@ -363,3 +363,27 @@ def test_upload_file_to_bucket_encodes_the_filename(monkeypatch, filename, key):
     )
 
     assert calls == [('PUT', f'https://example.test/files/b1/{key}')]
+
+
+def test_check_calls_hit_the_right_endpoints(monkeypatch):
+    calls = []
+
+    def fake(method, url, *a, **k):
+        calls.append((method, url, k.get('params')))
+        return {'hits': {'hits': [{'role': 'owner'}]}}
+
+    monkeypatch.setattr(zenodo_client, '_request', fake)
+
+    zenodo_client.get_me('tok', sandbox=True)
+    zenodo_client.list_depositions('tok', sandbox=True)
+    zenodo_client.get_community('fair3r', 'tok', sandbox=True)
+    members = zenodo_client.list_community_members('c-1', 'tok', sandbox=True)
+
+    base = 'https://sandbox.zenodo.org/api'
+    assert calls == [
+        ('GET', f'{base}/me', None),
+        ('GET', f'{base}/deposit/depositions', {'size': 1}),
+        ('GET', f'{base}/communities/fair3r', None),
+        ('GET', f'{base}/communities/c-1/members', {'size': 100}),
+    ]
+    assert members == [{'role': 'owner'}]
