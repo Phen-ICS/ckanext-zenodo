@@ -7,8 +7,12 @@ happens on the server and on Zenodo.
 
 ### Where the file goes
 
-The resource form (ckanext-fair3r's `resource-upload.js`) decides in the
-browser, for each selected file, before sending anything:
+The resource form decides in the browser, for each selected file, before
+sending anything. It is this plugin's own `zenodo-upload.js` (one file at
+a time, a "Store this file on Zenodo" switch, a progress bar) or, when
+ckanext-fair3r is enabled, that plugin's `resource-upload.js` (which takes
+over; everything below that mentions several files, the capacity badge or
+the duplicate-name warning is the latter):
 
 - **Zenodo** if the file is larger than `ckan.max_resource_size`, or its
   format isn't one the data viewer reads (`ckanext.xloader.formats`, by
@@ -20,7 +24,9 @@ the selected ones will, how much can be uploaded right now
 (`GET /zenodo/upload-capacity`), and a warning for any file whose name
 already exists in the dataset ("adds a second copy" for CKAN, "replaces
 it" for a Zenodo file sent to Zenodo again). The routing thresholds come
-from a `<meta name="zenodo-routing-config">` tag (`routing_config_dict()`).
+from `routing_config_dict()`: a `<meta name="zenodo-routing-config">` tag
+for ckanext-fair3r, a `data-config` attribute on the built-in form's
+option block (`h.zenodo_standalone_upload_config()`).
 
 The browser decision is a convenience only: the server checks everything
 again. Without a Zenodo token configured, none of this applies: the form

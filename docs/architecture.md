@@ -3,7 +3,7 @@
 ## Components
 
 ```
-Browser (resource form, ckanext-fair3r's resource-upload.js)
+Browser (resource form: this plugin's zenodo-upload.js, or ckanext-fair3r's resource-upload.js)
   |  POST /zenodo/upload/<dataset>   (file, multipart, with progress)
   v
 CKAN web process - blueprints/zenodo_upload.py
@@ -121,7 +121,7 @@ All soft: the plugin loads and works without them, with less.
 
 | Extension | Used for | Without it |
 |---|---|---|
-| ckanext-fair3r | FDF metadata (`DataCiteConverter.fdf_to_datacite`); the upload form routing, "Zenodo" switch, capacity badge, "Publish" button and "Download all" | Zenodo record gets minimal metadata (title, submitter); no browser routing (the endpoints still work) |
+| ckanext-fair3r | FDF metadata (`DataCiteConverter.fdf_to_datacite`); a richer upload form (several files, capacity badge, duplicate-name warning); "Publish" button and "Download all" | Zenodo record gets minimal metadata (title, submitter); the built-in upload form (one file at a time, `zenodo-upload.js`) is used instead; no "Publish" button or "Download all" |
 | ckanext-doi | Link from the Zenodo record back to the dataset's DataCite DOI, through its test or production resolver | No back-link |
 | ckanext-xloader | - (the plugin only opts its Link resources out of it) | Nothing to opt out of |
 | CKAN core `image_view`, `audio_view`, `video_view`, `pdf_view` | File previews on the resource page | No preview for that kind of file |

@@ -18,6 +18,7 @@ from ckanext.zenodo.lib.helpers import (
     zenodo_description_parts,
     zenodo_notice_for_package,
     zenodo_pending_deposition_for_package,
+    zenodo_standalone_upload_config,
 )
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 
@@ -85,6 +86,7 @@ class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
 
     def update_config(self, config_):
         toolkit.add_template_directory(config_, 'templates')
+        toolkit.add_resource('assets', 'zenodo')
         # Touching model.* at load time registers the SQLAlchemy mappings
         # with ckan.model.meta before anything queries them - same pattern
         # ckanext-citations' plugin.py uses.
@@ -114,6 +116,7 @@ class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
             'zenodo_notice_for_package': zenodo_notice_for_package,
             'zenodo_delete_impact': zenodo_delete_impact,
             'zenodo_description_parts': zenodo_description_parts,
+            'zenodo_standalone_upload_config': zenodo_standalone_upload_config,
         }
 
     # IPackageController

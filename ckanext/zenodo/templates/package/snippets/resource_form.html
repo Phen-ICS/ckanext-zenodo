@@ -1,0 +1,39 @@
+{#
+  The "new resource" form's own Zenodo support, for sites without
+  ckanext-fair3r (whose resource-upload.js does this and more - it takes
+  over, see h.zenodo_standalone_upload_config()): a switch to send the
+  file to Zenodo, and assets/js/zenodo-upload.js to send it there with a
+  progress bar. Files that stay on CKAN go through CKAN's own form as usual.
+  One file at a time, since CKAN's form has a single file field.
+#}
+{% ckan_extends %}
+
+{% block basic_fields_url %}
+  {{ super() }}
+  {% set zenodo_config = h.zenodo_standalone_upload_config() %}
+  {% if zenodo_config and not data.id %}
+    {% asset 'zenodo/upload' %}
+    <div id="zenodo-upload-option" class="form-group"
+         data-config="{{ zenodo_config }}"
+         data-upload-url="{{ h.url_for('zenodo_upload.upload', package_name=pkg_name) }}"
+         data-package-url="{{ h.url_for(dataset_type ~ '.read', id=pkg_name) }}"
+         data-revise-url="{{ h.url_for('api.action', logic_function='package_revise', ver=3) }}"
+         data-package-name="{{ pkg_name }}"
+         data-msg-stays="{{ _('Files larger than the limit, or in a format the data viewer cannot read, go to Zenodo automatically.') }}"
+         data-msg-routed="{{ _('This file will be stored on Zenodo, not in this catalogue.') }}"
+         data-msg-uploading="{{ _('Uploading to Zenodo…') }}"
+         data-msg-failed="{{ _('Upload to Zenodo failed') }}"
+         data-msg-network="{{ _('Network error') }}">
+      <div class="form-check">
+        <input type="checkbox" class="form-check-input" id="zenodo-force">
+        <label class="form-check-label" for="zenodo-force">
+          <i class="fa fa-archive" aria-hidden="true"></i>
+          {{ _('Store this file on Zenodo instead of this catalogue') }}
+        </label>
+      </div>
+      <p id="zenodo-hint" class="form-text"></p>
+      <progress id="zenodo-progress" max="100" value="0" hidden></progress>
+      <div id="zenodo-error" class="alert alert-danger" role="alert" hidden></div>
+    </div>
+  {% endif %}
+{% endblock %}

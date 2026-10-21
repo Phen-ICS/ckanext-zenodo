@@ -45,8 +45,10 @@ forever, instead of once. Confirmed empirically via direct psql checks
 across several real HTTP requests before this was fixed.
 """
 
+import json
 import re
 
+from ckan import plugins
 from ckan.plugins import toolkit
 from flask import g, has_app_context
 
@@ -192,3 +194,15 @@ def zenodo_description_parts(description):
         return None
     doi, url, rest = match.groups()
     return {'doi': doi, 'url': url, 'rest': rest}
+
+
+def zenodo_standalone_upload_config():
+    """The routing config (JSON) for this plugin's own, built-in upload form,
+    or None when that form must not appear: Zenodo isn't configured, or
+    ckanext-fair3r is enabled and already drives the resource form with its
+    own, richer script (two scripts must never intercept the same submit).
+    """
+    if plugins.plugin_loaded('fair3r'):
+        return None
+    config = zenodo_config.routing_config_dict()
+    return json.dumps(config) if config else None
