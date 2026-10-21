@@ -35,8 +35,9 @@ detailed_info: |
   (or sandbox.zenodo.org) account with a personal access token, and a Zenodo
   community the account can curate. CKAN's "new resource" form gets a built-in
   "Store this file on Zenodo" switch (one file at a time);
-  [ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r) is optional and
-  adds several files at once, a capacity badge and the FDF metadata.
+  [ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r) is recommended and
+  adds several files at once, a capacity badge, a "Publish" button and the FDF
+  metadata.
 
   ## Usage
   ```ini

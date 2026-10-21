@@ -46,11 +46,12 @@ operations, and the Zenodo API behaviour it relies on.
   separate site, with its own account, token and community.
 - A Zenodo community, of which that account is owner, manager or curator
   (needed to accept each record into it).
-- Optional: **[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r)**
+- Recommended: **[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r)**
   ([PyPI](https://pypi.org/project/ckanext-fair3r/)), for a richer upload
-  form and the FDF metadata. Not needed: this plugin adds its own Zenodo
-  switch to CKAN's "new resource" form. See [Relationship to
-  ckanext-fair3r](#relationship-to-ckanext-fair3r).
+  form (several files at once, capacity badge), the "Publish" button,
+  "Download all" and the FDF metadata in the Zenodo record. Not required:
+  this plugin adds its own Zenodo switch to CKAN's "new resource" form. See
+  [Relationship to ckanext-fair3r](#relationship-to-ckanext-fair3r).
 - Optional: **[ckanext-doi](https://github.com/Phen-ICS/ckanext-doi)**
   (PyPI: `ckanext-fair3r-doi`): the Zenodo record links back to the
   dataset's own DataCite DOI.
@@ -119,8 +120,9 @@ operations, and the Zenodo API behaviour it relies on.
 
 ## Relationship to ckanext-fair3r
 
-Not a dependency: the plugin works on its own, and gets more with
-[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r) installed.
+Not a dependency: the plugin works on its own, but
+[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r) is recommended,
+and is what this plugin was built for. What changes with and without it:
 
 - **Upload form.** Without ckanext-fair3r, CKAN's "new resource" form gets
   a built-in "Store this file on Zenodo" switch and a progress bar: one
