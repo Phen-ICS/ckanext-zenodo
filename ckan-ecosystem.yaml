@@ -1,0 +1,59 @@
+# Listing for the CKAN Ecosystem Catalog (https://ecosystem.ckan.org).
+# Fields left out are filled in from the GitHub repository.
+
+description: Stores a dataset's large or non-tabular files on Zenodo instead of CKAN's storage, publishes them there with a DOI when the dataset goes public, and keeps the dataset searchable in CKAN.
+
+detailed_info: |
+  ## Overview
+  Large files and formats the data viewer cannot read are sent to Zenodo
+  instead of CKAN's own storage. The dataset stays a normal, searchable CKAN
+  dataset: each Zenodo file appears in it as a resource linking to Zenodo,
+  with a preview for images, audio, video and PDF.
+
+  ## Features
+  - **Routing**: a file goes to Zenodo when it is larger than
+    `ckan.max_resource_size`, or in a format the data viewer cannot read, or
+    when the user switches "Zenodo" on.
+  - **Streaming upload**: the file is streamed through the CKAN server into a
+    draft Zenodo deposition, never kept on CKAN's storage.
+  - **Publish with a DOI**: when the dataset is active and public, a
+    background job writes the metadata, publishes the deposition (Zenodo
+    mints the DOI), files it into a Zenodo community and creates the CKAN
+    resources.
+  - **Versioning**: adding, replacing or deleting a file publishes a new
+    version of the same record; resources link to the concept DOI, which
+    always resolves to the latest version.
+  - **Lifecycle**: unpublished Zenodo files are deleted with their dataset;
+    published ones stay on Zenodo and the user is told so.
+  - **Operations**: `ckan zenodo check` verifies the token and community,
+    `ckan zenodo retry-pending` re-queues failed publishes.
+
+  ## Requirements
+  CKAN 2.12 with Redis and a background worker (`ckan jobs worker`), a Zenodo
+  (or sandbox.zenodo.org) account with a personal access token, and a Zenodo
+  community the account can curate. Uploading from CKAN's web interface needs
+  [ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r), whose resource
+  form is the client of this plugin's upload endpoint.
+
+  ## Usage
+  ```ini
+  ckan.plugins = ... zenodo image_view audio_view video_view pdf_view
+  ckanext.zenodo.test_mode = true
+  ckanext.zenodo.sandbox_access_token = <token>
+  ckanext.zenodo.community_identifier = my-community
+  ```
+
+extension_type: storage
+
+ckan_versions:
+  - "2.12"
+
+contact_name: Phen-ICS (IGBMC)
+contact_email: fair3r@igbmc.fr
+
+tags:
+  - zenodo
+  - doi
+  - storage
+  - large-files
+  - preview

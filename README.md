@@ -44,10 +44,18 @@ operations, and the Zenodo API behaviour it relies on.
   separate site, with its own account, token and community.
 - A Zenodo community, of which that account is owner, manager or curator
   (needed to accept each record into it).
-- Recommended: **ckanext-fair3r** (the upload form that routes files here,
-  and the FDF metadata) and **ckanext-doi** (link from the Zenodo record
-  back to the dataset's DOI). Without ckanext-fair3r, nothing in CKAN's
-  standard interface sends files here.
+- To upload files from CKAN's web interface:
+  **[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r)**
+  ([PyPI](https://pypi.org/project/ckanext-fair3r/)). Its resource form
+  is the only client of this plugin's `/zenodo/upload/<dataset>` endpoint:
+  CKAN's standard resource form never sends a file to Zenodo, so without
+  ckanext-fair3r, either another client must POST to that endpoint, or
+  nothing reaches Zenodo. Publishing, versioning, deletion and previews
+  do not depend on it. See [Relationship to
+  ckanext-fair3r](#relationship-to-ckanext-fair3r).
+- Optional: **[ckanext-doi](https://github.com/Phen-ICS/ckanext-doi)**
+  (PyPI: `ckanext-fair3r-doi`): the Zenodo record links back to the
+  dataset's own DataCite DOI.
 
 ## Installation
 
@@ -113,9 +121,10 @@ operations, and the Zenodo API behaviour it relies on.
 
 ## Relationship to ckanext-fair3r
 
-Not a declared dependency, but the reason this plugin exists:
+Not a declared dependency, but required to upload from the web interface,
+and the reason this plugin exists:
 
-- ckanext-fair3r's resource form decides, in the browser, which files go
+- [ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r)'s resource form decides, in the browser, which files go
   to Zenodo and sends them to this plugin's `/zenodo/upload/<dataset>`
   endpoint (with the "Zenodo" switch and the live capacity badge). It
   also provides the "Publish" button and "Download all", which uses

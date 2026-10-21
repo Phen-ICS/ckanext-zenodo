@@ -1,12 +1,12 @@
 [project]
 name = "ckanext-zenodo"
-version = "0.1.24"
+version = "0.1.25"
 description = "Publishes large or non-tabular dataset files to Zenodo (sandbox or production) instead of CKAN storage, mapping FDF metadata into the Zenodo deposition."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0-or-later" }
 authors = [
-    { name = "ICS", email = "groupe-info-ics@igbmc.fr" }
+    { name = "Phen-ICS (IGBMC)", email = "fair3r@igbmc.fr" }
 ]
 keywords = ["CKAN", "data", "zenodo", "doi"]
 dependencies = [
