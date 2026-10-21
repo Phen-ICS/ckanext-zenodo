@@ -16,7 +16,9 @@ Zenodo record.
 - **Routing**: a file goes to Zenodo when it's larger than
   `ckan.max_resource_size`, or in a format the data viewer can't read
   (not in `ckanext.xloader.formats`), or when the user switches
-  "Zenodo" on. Everything else stays in CKAN.
+  "Zenodo" on. Everything else stays in CKAN. (Without
+  `ckanext.xloader.formats`, no format counts as readable, so every file
+  goes to Zenodo.)
 - **Upload**: the file is streamed through the CKAN server into a draft
   Zenodo deposition kept for the dataset, by one shared Zenodo account.
   Nothing is public yet.
@@ -44,14 +46,10 @@ operations, and the Zenodo API behaviour it relies on.
   separate site, with its own account, token and community.
 - A Zenodo community, of which that account is owner, manager or curator
   (needed to accept each record into it).
-- To upload files from CKAN's web interface:
-  **[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r)**
-  ([PyPI](https://pypi.org/project/ckanext-fair3r/)). Its resource form
-  is the only client of this plugin's `/zenodo/upload/<dataset>` endpoint:
-  CKAN's standard resource form never sends a file to Zenodo, so without
-  ckanext-fair3r, either another client must POST to that endpoint, or
-  nothing reaches Zenodo. Publishing, versioning, deletion and previews
-  do not depend on it. See [Relationship to
+- Optional: **[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r)**
+  ([PyPI](https://pypi.org/project/ckanext-fair3r/)), for a richer upload
+  form and the FDF metadata. Not needed: this plugin adds its own Zenodo
+  switch to CKAN's "new resource" form. See [Relationship to
   ckanext-fair3r](#relationship-to-ckanext-fair3r).
 - Optional: **[ckanext-doi](https://github.com/Phen-ICS/ckanext-doi)**
   (PyPI: `ckanext-fair3r-doi`): the Zenodo record links back to the
@@ -121,17 +119,24 @@ operations, and the Zenodo API behaviour it relies on.
 
 ## Relationship to ckanext-fair3r
 
-Not a declared dependency, but required to upload from the web interface,
-and the reason this plugin exists:
+Not a dependency: the plugin works on its own, and gets more with
+[ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r) installed.
 
-- [ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r)'s resource form decides, in the browser, which files go
-  to Zenodo and sends them to this plugin's `/zenodo/upload/<dataset>`
-  endpoint (with the "Zenodo" switch and the live capacity badge). It
-  also provides the "Publish" button and "Download all", which uses
-  Zenodo's own ZIP for Zenodo files.
-- This plugin converts the dataset's FDF metadata with ckanext-fair3r's
-  DataCite converter (optional import). Without it, a record is still
-  published, with minimal metadata (title, tags, licence, submitter).
+- **Upload form.** Without ckanext-fair3r, CKAN's "new resource" form gets
+  a built-in "Store this file on Zenodo" switch and a progress bar: one
+  file at a time, sent to this plugin's `/zenodo/upload/<dataset>`
+  endpoint when it belongs on Zenodo (see Routing), posted with the form
+  as usual otherwise. With ckanext-fair3r enabled, its own resource form
+  takes over instead (the built-in one is not rendered), and adds
+  several files at once, the live capacity badge and a warning when a file
+  name already exists. Any other client can also POST to the endpoint.
+- **Around the form.** ckanext-fair3r provides the "Publish" button and
+  "Download all", which uses Zenodo's own ZIP for Zenodo files. Without
+  it, a dataset is published by making it public (Manage -> Visibility).
+- **Metadata.** This plugin converts the dataset's FDF metadata with
+  ckanext-fair3r's DataCite converter (optional import). Without it, a
+  record is still published, with minimal metadata (title, tags, licence,
+  submitter).
 
 ## Tests
 

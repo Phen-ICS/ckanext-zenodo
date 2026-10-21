@@ -14,6 +14,8 @@ detailed_info: |
   - **Routing**: a file goes to Zenodo when it is larger than
     `ckan.max_resource_size`, or in a format the data viewer cannot read, or
     when the user switches "Zenodo" on.
+  - **Built-in upload form**: a Zenodo switch and progress bar on CKAN's own
+    resource form, no other plugin needed.
   - **Streaming upload**: the file is streamed through the CKAN server into a
     draft Zenodo deposition, never kept on CKAN's storage.
   - **Publish with a DOI**: when the dataset is active and public, a
@@ -31,9 +33,10 @@ detailed_info: |
   ## Requirements
   CKAN 2.12 with Redis and a background worker (`ckan jobs worker`), a Zenodo
   (or sandbox.zenodo.org) account with a personal access token, and a Zenodo
-  community the account can curate. Uploading from CKAN's web interface needs
-  [ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r), whose resource
-  form is the client of this plugin's upload endpoint.
+  community the account can curate. CKAN's "new resource" form gets a built-in
+  "Store this file on Zenodo" switch (one file at a time);
+  [ckanext-fair3r](https://github.com/Phen-ICS/ckanext-fair3r) is optional and
+  adds several files at once, a capacity badge and the FDF metadata.
 
   ## Usage
   ```ini

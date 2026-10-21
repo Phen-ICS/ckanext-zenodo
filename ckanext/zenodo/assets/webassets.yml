@@ -1,0 +1,4 @@
+upload:
+  output: zenodo/%(version)s_upload.js
+  contents:
+    - js/zenodo-upload.js
