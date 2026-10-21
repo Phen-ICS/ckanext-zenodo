@@ -48,8 +48,8 @@ extension_type: storage
 ckan_versions:
   - "2.12"
 
-contact_name: ICS (IGBMC)
-contact_email: groupe-info-ics@igbmc.fr
+contact_name: Phen-ICS (IGBMC)
+contact_email: fair3r@igbmc.fr
 
 tags:
   - zenodo
