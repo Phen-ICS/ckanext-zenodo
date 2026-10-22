@@ -226,7 +226,12 @@ def upload(package_name):
 
         try:
             deposition = ZenodoDepositionQuery.get_or_create_open_deposition(
-                pkg_dict['id'], create_deposition_fn, is_sandbox=sandbox
+                pkg_dict['id'],
+                create_deposition_fn,
+                is_sandbox=sandbox,
+                discard_fn=lambda deposition_id: zenodo_client.delete_deposition(
+                    deposition_id, token, sandbox=sandbox
+                ),
             )
         except zenodo_client.ZenodoError:
             log.exception(

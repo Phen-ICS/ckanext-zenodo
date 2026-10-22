@@ -5,14 +5,18 @@ SQLAlchemy-2.0-clean style ckanext-citations' model layer already uses.
 """
 
 import json
+import logging
 from typing import ClassVar
 
 from ckan.model import Session
+from sqlalchemy.exc import IntegrityError
 
 from ckanext.zenodo.model.zenodo_deposition import (
     ZenodoDeposition,
     zenodo_deposition_table,
 )
+
+log = logging.getLogger(__name__)
 
 
 class ZenodoDepositionQuery:
@@ -43,7 +47,7 @@ class ZenodoDepositionQuery:
 
     @classmethod
     def get_or_create_open_deposition(
-        cls, package_id, create_deposition_fn, is_sandbox=True
+        cls, package_id, create_deposition_fn, is_sandbox=True, discard_fn=None
     ):
         """Idempotent reuse: if a non-published deposition already exists
         for this dataset, return it as-is. Otherwise call
@@ -52,13 +56,33 @@ class ZenodoDepositionQuery:
         persist a new record. A *published* existing record is returned
         unchanged too - the caller decides what to do with an
         already-published dataset gaining another file (out of scope for
-        this stage; see the implementation plan)."""
+        this stage; see the implementation plan).
+
+        Two first uploads at once both find no row and both create a
+        deposition: the second insert hits the primary key. Its own
+        deposition is then handed to `discard_fn(zenodo_deposition_id)` and
+        the row the other request created is used."""
         existing = cls.read_package(package_id)
         if existing is not None:
             return existing
 
         zenodo_deposition_id, bucket_url = create_deposition_fn()
-        return cls.create(package_id, zenodo_deposition_id, bucket_url, is_sandbox)
+        try:
+            with Session.begin_nested():
+                return cls.create(
+                    package_id, zenodo_deposition_id, bucket_url, is_sandbox
+                )
+        except IntegrityError:
+            if discard_fn is not None:
+                try:
+                    discard_fn(zenodo_deposition_id)
+                except Exception:
+                    log.exception(
+                        'Could not delete duplicate Zenodo deposition %s - '
+                        'delete it by hand from the shared account',
+                        zenodo_deposition_id,
+                    )
+            return cls.read_package(package_id)
 
     @classmethod
     def update_package(cls, package_id, **kwargs):
@@ -84,19 +108,11 @@ class ZenodoDepositionQuery:
         return record
 
     @classmethod
-    def increment_file_count(cls, package_id):
-        record = cls.read_package(package_id)
-        if record is None:
-            return None
-        return cls.update_package(package_id, file_count=record.file_count + 1)
-
-    @classmethod
     def add_file(cls, package_id, filename):
-        """Records a real uploaded filename, in addition to incrementing
-        file_count - what the upload blueprint actually calls (rather
-        than increment_file_count alone) so the dataset page can list
-        real filenames while the deposition is still unpublished (see
-        lib/helpers.py's zenodo_pending_deposition_for_package).
+        """Records a real uploaded filename and increments file_count, so
+        the dataset page can list real filenames while the deposition is
+        still unpublished (see lib/helpers.py's
+        zenodo_pending_deposition_for_package).
 
         A filename already recorded is left as is: re-uploading a file
         under the same name *replaces* it on Zenodo (bucket API PUT on the

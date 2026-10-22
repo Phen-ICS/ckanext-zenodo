@@ -388,3 +388,24 @@ def test_source_doi_link_can_point_at_another_resolver():
     assert result['related_identifiers'] == [
         {'relation': 'isPartOf', 'identifier': '10.83249/abc'}
     ]
+
+
+def test_description_escapes_user_supplied_values():
+    # Users control these (display name, FDF form, tags): no link or markup
+    # of theirs may land in a public record published by the shared account.
+    html = mm.build_zenodo_description_html(
+        {
+            'descriptions': [
+                {'descriptionType': 'Abstract', 'description': 'expression a<b in WT'}
+            ],
+            'creators': [{'name': 'Smith & Co'}],
+        },
+        '<a href="https://evil.test">Click</a>',
+        tags=[{'name': '<b>tag</b>'}],
+    )
+
+    assert '<a href="https://evil.test">' not in html
+    assert '&lt;a href=&quot;https://evil.test&quot;&gt;Click&lt;/a&gt;' in html
+    assert '<p>expression a&lt;b in WT</p>' in html
+    assert 'Smith &amp; Co' in html
+    assert '<li>&lt;b&gt;tag&lt;/b&gt;</li>' in html

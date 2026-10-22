@@ -106,7 +106,7 @@ on `package_id`).
 | `is_sandbox` | Whether this deposition lives on the sandbox (fixed at creation) |
 | `published` | False while files are waiting to be published (first publish or a pending new version) |
 | `file_count`, `filenames` | Files recorded for the deposition (JSON list); a re-upload under the same name isn't counted twice |
-| `last_metadata_hash` | Not used by the code at the moment (planned: skip re-sending identical metadata) |
+| `last_metadata_hash` | Left in the database, not used (removed from the model) |
 | `pending_notice` | One-time message for the dataset page set by a background job (`published`, `new_version_published`), cleared when shown |
 | `publish_attempts` | Publish jobs started since the last successful publish |
 | `created`, `updated` | Timestamps |

@@ -56,6 +56,12 @@ The browser-side routing and messages are a convenience, never trusted.
   (`zenodo_description_parts`), autoescaped, without `Markup`; only an
   `https://` link is turned into a link - a description edited by hand
   into anything else falls back to CKAN's sanitized Markdown.
+- The Zenodo record's description escapes every value it's built from
+  (display name, FDF form, tags): a user can't place links or markup in a
+  public record published under the shared account.
+- A publish job checks again, when it runs, that the dataset is still
+  active and public: one made private or deleted after being queued is
+  never published.
 - Filenames are percent-encoded in Zenodo URLs, so `#`, `?` or `/` in a
   name can't change which file is written.
 - Uploaded files never land in CKAN's storage; the request body is a
@@ -70,11 +76,6 @@ The browser-side routing and messages are a convenience, never trusted.
 - **Published files can't be removed from Zenodo.** Deleting a file or
   the dataset only removes it from new versions; earlier versions keep
   it. Withdrawing a record needs Zenodo support.
-- **The Zenodo description isn't HTML-escaped.** Values from the FDF
-  form (abstract, names, subjects) and tags are inserted into the
-  description's HTML as they are. Zenodo filters the HTML it accepts, so
-  this can't run scripts there, but a `<` in a value can break the
-  layout of that description.
 - **The record's metadata isn't updated when only the dataset changes.**
   It's sent on the next new version (see
   [metadata-mapping.md](metadata-mapping.md#when-its-sent)).

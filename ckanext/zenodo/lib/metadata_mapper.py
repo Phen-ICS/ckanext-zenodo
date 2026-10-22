@@ -14,6 +14,7 @@ back to a generic value.
 
 import logging
 import re
+from html import escape
 
 log = logging.getLogger(__name__)
 
@@ -332,17 +333,21 @@ def build_zenodo_description_html(
     `source_doi` is the FAIR3R dataset's own DataCite DOI (ckanext-doi),
     linked so a reader landing on Zenodo can get back to the full
     catalogue record. `source_doi_url` is where that link points
-    (defaults to doi.org - see publish_guard.py for the test-mode case)."""
+    (defaults to doi.org - see publish_guard.py for the test-mode case).
+
+    Every value is HTML-escaped: they come from users (display name, FDF
+    form, tags), and Zenodo keeps links and formatting in what it publishes
+    under the shared account."""
     submitted_on_behalf_of = (
         '<p><strong>📤 Submitted via the FAIR3R shared account on behalf of:'
-        f'</strong> {submitter_display_name}</p>'
+        f'</strong> {escape(submitter_display_name)}</p>'
     )
     lines = [submitted_on_behalf_of]
     if source_doi:
         lines.append(
             '<p><strong>🔗 FAIR3R dataset:</strong> '
-            f'<a href="{source_doi_url or f"https://doi.org/{source_doi}"}">'
-            f'{source_doi}</a></p>'
+            f'<a href="{escape(source_doi_url or f"https://doi.org/{source_doi}")}">'
+            f'{escape(source_doi)}</a></p>'
         )
 
     descriptions = datacite_metadata.get('descriptions') or []
@@ -355,30 +360,32 @@ def build_zenodo_description_html(
         None,
     )
     if abstract:
-        lines.append(f'<p>{abstract}</p>')
+        lines.append(f'<p>{escape(abstract)}</p>')
 
     creators = datacite_metadata.get('creators') or []
     if creators:
         names = ', '.join(c.get('name', '') for c in creators if c.get('name'))
         if names:
-            lines.append(f'<p><strong>🧑‍🔬 Creators:</strong> {names}</p>')
+            lines.append(f'<p><strong>🧑‍🔬 Creators:</strong> {escape(names)}</p>')
 
     labeled_subjects = _split_labeled_subjects(datacite_metadata.get('subjects'))
     if labeled_subjects:
         items = ''.join(
-            f'<li><strong>{label}:</strong> {value}</li>'
+            f'<li><strong>{escape(label)}:</strong> {escape(value)}</li>'
             for label, value in labeled_subjects
         )
         lines.append(f'<ul>{items}</ul>')
 
     keywords = map_keywords(tags)
     if keywords:
-        items = ''.join(f'<li>{kw}</li>' for kw in keywords)
+        items = ''.join(f'<li>{escape(kw)}</li>' for kw in keywords)
         lines.append(f'<p><strong>🏷️ Keywords:</strong></p><ul>{items}</ul>')
 
     publication_year = datacite_metadata.get('publicationYear')
     if publication_year:
-        lines.append(f'<p><strong>📅 Publication year:</strong> {publication_year}</p>')
+        lines.append(
+            f'<p><strong>📅 Publication year:</strong> {escape(str(publication_year))}</p>'
+        )
 
     return '\n'.join(lines)
 
