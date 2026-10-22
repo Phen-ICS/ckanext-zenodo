@@ -7,8 +7,8 @@ Stores a dataset's large or non-tabular files on [Zenodo](https://zenodo.org/)
 instead of in CKAN's own storage, and publishes them there - with a DOI,
 in a Zenodo community - when the dataset is made public. The dataset stays
 a normal, searchable CKAN dataset: each Zenodo file appears in it as a
-resource linking to Zenodo, with a preview for images, audio, video and
-PDF. Built for the FAIR3R catalogue, whose FDF metadata it maps into the
+resource linking to Zenodo, with a preview for images, audio and video.
+Built for the FAIR3R catalogue, whose FDF metadata it maps into the
 Zenodo record.
 
 ## How it works
@@ -68,7 +68,7 @@ operations, and the Zenodo API behaviour it relies on.
    `ckan.ini`:
 
    ```ini
-   ckan.plugins = ... zenodo image_view audio_view video_view pdf_view
+   ckan.plugins = ... zenodo image_view audio_view video_view
    ```
 
 3. Configure the Zenodo account (sandbox here; for zenodo.org set

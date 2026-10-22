@@ -130,10 +130,12 @@ the next update triggers the publish if something is still pending.
    - an existing resource for the same file is kept and only updated
      (description, size), so retries and later versions don't create
      duplicates.
-8. **Previews**: for image, audio, video and PDF files, the matching
-   core view (`image_view`, `audio_view`, `video_view`, `pdf_view`) is
-   created or re-pointed at the file's direct content URL on Zenodo for
-   this version (`/api/records/<record id>/files/<name>/content`).
+8. **Previews**: for image, audio and video files, the matching core
+   view (`image_view`, `audio_view`, `video_view`) is created or
+   re-pointed at the file's direct content URL on Zenodo for this version
+   (`/api/records/<record id>/files/<name>/content`). PDFs get none -
+   Zenodo forbids embedding them - and the `pdf_view` CKAN adds by
+   default is removed; "Go to resource" opens Zenodo's own preview.
 9. Leave a one-time notice for the dataset page ("Archived on Zenodo
    (DOI: ...)"), then commit.
 

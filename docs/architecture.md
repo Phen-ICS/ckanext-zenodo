@@ -77,7 +77,7 @@ Templates overridden:
 | `lib/metadata_mapper.py` | DataCite-shaped metadata -> Zenodo metadata (pure, no CKAN import) |
 | `lib/delete_zenodo_file.py` | Delete a pending file; delete a published file through a new version |
 | `lib/lifecycle_guard.py` | Chained `package_update` / `package_delete` / `dataset_purge` |
-| `lib/media_preview.py` | Image/audio/video/PDF previews of Zenodo files through CKAN's core view plugins |
+| `lib/media_preview.py` | Image/audio/video previews of Zenodo files through CKAN's core view plugins; removes the unusable PDF view |
 | `lib/xloader_guard.py` | `IXloader.can_upload` |
 | `lib/auth.py` | Chained `resource_delete` auth |
 | `lib/rate_limit.py` | Per-user hourly request and byte budgets (Redis) |
@@ -124,7 +124,7 @@ All soft: the plugin loads and works without them, with less.
 | ckanext-fair3r | FDF metadata (`DataCiteConverter.fdf_to_datacite`); a richer upload form (several files, capacity badge, duplicate-name warning); "Publish" button and "Download all" | Zenodo record gets minimal metadata (title, submitter); the built-in upload form (one file at a time, `zenodo-upload.js`) is used instead; no "Publish" button or "Download all" |
 | ckanext-doi | Link from the Zenodo record back to the dataset's DataCite DOI, through its test or production resolver | No back-link |
 | ckanext-xloader | - (the plugin only opts its Link resources out of it) | Nothing to opt out of |
-| CKAN core `image_view`, `audio_view`, `video_view`, `pdf_view` | File previews on the resource page | No preview for that kind of file |
+| CKAN core `image_view`, `audio_view`, `video_view` | File previews on the resource page | No preview for that kind of file |
 
 Redis (CKAN's own) holds the rate-limit and disk-reservation counters;
 the RQ worker (CKAN's own) runs the background jobs.

@@ -33,7 +33,8 @@ a token only works on the site that issued it, and the community must
 exist there.
 
 Plugins to enable: `zenodo`, plus `image_view`, `audio_view`,
-`video_view`, `pdf_view` for previews.
+`video_view` for previews (`pdf_view` isn't needed for Zenodo files:
+Zenodo forbids embedding them).
 
 Database: `ckan db upgrade -p zenodo` after installing or upgrading.
 
