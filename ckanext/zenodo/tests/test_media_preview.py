@@ -57,10 +57,15 @@ def _fake_view_actions(monkeypatch, initial_views=None):
                 return view
         raise media_preview.toolkit.ObjectNotFound()
 
+    def resource_view_delete(context, data_dict):
+        calls['delete'] = calls.get('delete', 0) + 1
+        views[:] = [v for v in views if v['id'] != data_dict['id']]
+
     actions = {
         'resource_view_list': resource_view_list,
         'resource_view_create': resource_view_create,
         'resource_view_update': resource_view_update,
+        'resource_view_delete': resource_view_delete,
     }
 
     def fake_get_action(name):
@@ -128,7 +133,6 @@ def test_sync_media_preview_noop_without_a_content_url(monkeypatch):
         ('PNG', 'image_view', 'image_url'),
         ('MP3', 'audio_view', 'audio_url'),
         ('MP4', 'video_view', 'video_url'),
-        ('PDF', 'pdf_view', 'pdf_url'),
     ],
 )
 def test_sync_media_preview_creates_the_right_view_kind(
@@ -201,3 +205,26 @@ def test_sync_media_preview_never_raises_on_action_failure(monkeypatch):
     media_preview.sync_media_preview(
         resource['id'], 'PNG', 'https://example.test/a.png', 'a-user'
     )
+
+
+def test_sync_media_preview_removes_the_pdf_view_ckan_creates(monkeypatch):
+    # Zenodo serves files as non-embeddable downloads: a PDF view would only
+    # show a blank box, so the one CKAN adds by default is removed.
+    dataset = factories.Dataset()
+    resource = factories.Resource(package_id=dataset['id'], format='PDF')
+    auto_created = {
+        'id': 'view-1',
+        'resource_id': resource['id'],
+        'view_type': 'pdf_view',
+    }
+    views, calls = _fake_view_actions(monkeypatch, [auto_created])
+
+    media_preview.sync_media_preview(
+        resource['id'],
+        'PDF',
+        'https://sandbox.zenodo.org/api/records/1/files/a.pdf/content',
+        'a-user',
+    )
+
+    assert views == []
+    assert calls == {'create': 0, 'update': 0, 'delete': 1}

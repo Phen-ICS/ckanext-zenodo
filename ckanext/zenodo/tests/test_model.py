@@ -56,22 +56,6 @@ def test_get_or_create_open_deposition_is_idempotent():
     )
 
 
-def test_increment_file_count():
-    dataset = factories.Dataset()
-    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
-    updated = ZenodoDepositionQuery.increment_file_count(dataset['id'])
-
-    assert updated.file_count == 2
-
-
-def test_increment_file_count_on_missing_deposition_returns_none():
-    dataset = factories.Dataset()
-
-    assert ZenodoDepositionQuery.increment_file_count(dataset['id']) is None
-
-
 def test_add_file_records_filename_and_increments_count():
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
@@ -202,3 +186,30 @@ def test_deposition_is_deleted_when_package_is_deleted():
     Session.expire_all()
 
     assert ZenodoDepositionQuery.read_package(dataset['id']) is None
+
+
+def test_concurrent_first_upload_keeps_one_row_and_discards_the_other_deposition(
+    monkeypatch,
+):
+    # Two first uploads at once: both see no row, both create a Zenodo
+    # deposition - the second one's insert fails on the primary key.
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-first', 'https://example.test/b1')
+    real_read = ZenodoDepositionQuery.read_package
+    reads = []
+
+    def read_missing_once(package_id):
+        reads.append(package_id)
+        return None if len(reads) == 1 else real_read(package_id)
+
+    monkeypatch.setattr(ZenodoDepositionQuery, 'read_package', read_missing_once)
+    discarded = []
+
+    record = ZenodoDepositionQuery.get_or_create_open_deposition(
+        dataset['id'],
+        lambda: ('dep-second', 'https://example.test/b2'),
+        discard_fn=discarded.append,
+    )
+
+    assert record.zenodo_deposition_id == 'dep-first'
+    assert discarded == ['dep-second']

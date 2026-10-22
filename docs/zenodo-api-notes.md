@@ -50,8 +50,14 @@ code.
 - All files of a version as a ZIP: `/api/records/<version record id>/files-archive`
   (404 with the concept id).
 - Zenodo pages send `X-Frame-Options: sameorigin`: they can't be shown in
-  an iframe. `<img>`, `<audio>`, `<video>` and `<object>` on the direct
-  content URL work - hence previews through CKAN's own view plugins.
+  an iframe. `<img>`, `<audio>` and `<video>` on the direct content URL
+  work - hence previews through CKAN's own view plugins.
+- No embedded PDF: every file URL (`/api/records/.../content`,
+  `/records/.../files/...`, `?download=0`, `/records/<id>/preview/<name>`)
+  answers `application/octet-stream`, `Content-Disposition: attachment`,
+  `X-Frame-Options: sameorigin`, so `pdf_view`'s `<object>` stays blank
+  ("Your browser does not support object tags"). The plugin removes the
+  `pdf_view` CKAN creates; "Go to resource" opens Zenodo's own preview.
 
 ## Communities
 

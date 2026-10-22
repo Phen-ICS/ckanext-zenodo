@@ -50,10 +50,6 @@ zenodo_deposition_table = Table(
     # Zenodo without a live API call on every render (see
     # lib/helpers.py's zenodo_pending_deposition_for_package).
     Column('filenames', types.UnicodeText, nullable=False, default='[]'),
-    # Hash of the metadata dict last PUT to Zenodo for this deposition -
-    # avoids re-sending identical metadata if the publish hook fires more
-    # than once for the same draft->active transition.
-    Column('last_metadata_hash', types.UnicodeText, nullable=True),
     # A one-shot "flash message, but surviving past this request" - set
     # by the deferred publish/delete jobs right when they succeed (see
     # lib/helpers.py's zenodo_notice_for_package), since by the time

@@ -4,6 +4,7 @@ toolkit.enqueue_job and zenodo_client are both monkeypatched - no real
 RQ job, no real network."""
 
 import pytest
+from ckan import model
 from ckan.plugins import toolkit
 from ckan.tests import factories
 
@@ -37,7 +38,7 @@ def test_non_dataset_type_is_ignored(enqueued):
 def test_non_active_state_is_ignored(enqueued):
     dataset = factories.Dataset(state='draft')
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     publish_guard.maybe_publish_pending_deposition(
         _pkg_dict(dataset['id'], state='draft')
@@ -57,7 +58,7 @@ def test_no_deposition_is_ignored(enqueued):
 def test_already_published_deposition_is_ignored(enqueued):
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
     ZenodoDepositionQuery.mark_published(dataset['id'], 'rec-1', '10.5281/zenodo.1')
 
     publish_guard.maybe_publish_pending_deposition(_pkg_dict(dataset['id']))
@@ -82,7 +83,7 @@ def test_private_active_dataset_is_not_published_yet(enqueued):
     # still private should never get one yet.
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     publish_guard.maybe_publish_pending_deposition(
         _pkg_dict(dataset['id'], private=True)
@@ -99,7 +100,7 @@ def test_dataset_made_public_later_gets_published_then(enqueued):
     # creation.
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     publish_guard.maybe_publish_pending_deposition(
         _pkg_dict(dataset['id'], private=True)
@@ -115,7 +116,7 @@ def test_dataset_made_public_later_gets_published_then(enqueued):
 def test_pending_deposition_with_files_is_enqueued(enqueued):
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     publish_guard.maybe_publish_pending_deposition(_pkg_dict(dataset['id']))
 
@@ -189,7 +190,7 @@ def test_submitter_display_name_falls_back_to_author_field():
 def test_publish_deposition_marks_published_on_success(monkeypatch):
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     monkeypatch.setattr(
         zenodo_client,
@@ -256,7 +257,7 @@ def test_publish_deposition_marks_published_before_creating_resources(monkeypatc
     # this test targets the first-publish case specifically.
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     monkeypatch.setattr(zenodo_client, 'update_deposition_metadata', lambda *a, **k: {})
     monkeypatch.setattr(
@@ -307,7 +308,7 @@ def test_publish_deposition_resource_url_uses_the_concept_record(monkeypatch):
     # empirically against the real sandbox).
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     monkeypatch.setattr(zenodo_client, 'update_deposition_metadata', lambda *a, **k: {})
     monkeypatch.setattr(
@@ -341,7 +342,7 @@ def test_publish_deposition_resource_url_uses_the_concept_record(monkeypatch):
 def test_publish_deposition_leaves_unpublished_on_zenodo_error(monkeypatch):
     dataset = factories.Dataset()
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     def failing_publish(*a, **k):
         raise zenodo_client.ZenodoError('boom')
@@ -669,7 +670,7 @@ def test_hook_fires_on_a_real_draft_to_active_transition(enqueued):
     org = factories.Organization()
     dataset = factories.Dataset(private=False, owner_org=org['id'], state='draft')
     ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
-    ZenodoDepositionQuery.increment_file_count(dataset['id'])
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
 
     call_action(
         'package_patch', {'ignore_auth': True}, id=dataset['id'], state='active'
@@ -787,3 +788,32 @@ def test_resource_size_follows_the_zenodo_file():
     )
     assert len(pkg_dict['resources']) == 1
     assert pkg_dict['resources'][0]['size'] == 2048
+
+
+@pytest.mark.parametrize('change', [{'private': True}, {'state': 'deleted'}])
+def test_publish_job_skips_a_dataset_no_longer_public(monkeypatch, change):
+    # Queued while public, made private or deleted before the job ran: a
+    # Zenodo publish is permanent, so it must not happen.
+    org = factories.Organization()
+    dataset = factories.Dataset(private=False, owner_org=org['id'])
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'a.txt')
+    # A new version pending on an already-published record: its row stays
+    # when the dataset is deleted (an unpublished draft's row would not).
+    ZenodoDepositionQuery.update_package(dataset['id'], concept_record_id='c-1')
+    model.repo.commit()
+    toolkit.get_action('package_patch')(
+        {'ignore_auth': True}, {'id': dataset['id'], **change}
+    )
+
+    def must_not_publish(*a, **k):
+        raise AssertionError('Zenodo must not be called')
+
+    monkeypatch.setattr(zenodo_client, 'update_deposition_metadata', must_not_publish)
+    monkeypatch.setattr(zenodo_client, 'publish_deposition', must_not_publish)
+
+    publish_guard._publish_deposition(dataset['id'])
+
+    record = ZenodoDepositionQuery.read_package(dataset['id'])
+    assert record.published is False
+    assert record.publish_attempts == 0

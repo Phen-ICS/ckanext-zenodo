@@ -1,5 +1,5 @@
-"""Keeps a Zenodo-backed resource's own core media view (Image, Audio,
-Video or PDF) pointing at a real, directly-loadable content URL -
+"""Keeps a Zenodo-backed resource's own core media view (Image, Audio
+or Video) pointing at a real, directly-loadable content URL -
 instead of the broken one CKAN auto-creates by default.
 
 Found via live testing (the exact scenario the user asked about):
@@ -26,13 +26,12 @@ different origin at all.
 What *does* work, confirmed empirically against the real sandbox:
 Zenodo's newer records API exposes each file's raw content directly -
 `https://{host}/api/records/{record_id}/files/{filename}/content` -
-with a real content-type (image/png, audio/mpeg, application/pdf...)
-and no CORS/framing restriction that applies to <img>/<audio>/<video>/
-<object> (X-Frame-Options only ever applies to framing a *document*,
-which none of these tags do). Each of core's own image_view,
-audio_view, video_view and pdf_view already supports pointing at a URL
-other than resource.url for exactly this, via its own schema field
-(image_url/audio_url/video_url/pdf_url) - this module just keeps the
+which <img>, <audio> and <video> load as-is. Not PDFs: the file comes
+as an attachment with X-Frame-Options: sameorigin, which pdf_view's
+<object> respects - see _NO_PREVIEW below. Each of core's own
+image_view, audio_view and video_view already supports pointing at a
+URL other than resource.url for exactly this, via its own schema field
+(image_url/audio_url/video_url) - this module just keeps the
 right one in sync, rather than reinventing new resource view types.
 No new route, no new auth surface, no content ever executed - a
 single config field, filled from a URL this plugin already built
@@ -58,15 +57,20 @@ log = logging.getLogger(__name__)
 
 # One entry per core view this applies to - (view_type, its own schema
 # field for the override URL, the config option listing which formats
-# it covers). pdf_view hardcodes its own formats (no config option for
-# it, confirmed in ckanext.pdfview.plugin.PDFView.can_view) rather than
-# reading one.
+# it covers).
 _VIEW_KINDS = (
-    ('image_view', 'image_url', 'ckan.preview.image_formats', None, 'Image'),
-    ('audio_view', 'audio_url', 'ckan.preview.audio_formats', None, 'Audio'),
-    ('video_view', 'video_url', 'ckan.preview.video_formats', None, 'Video'),
-    ('pdf_view', 'pdf_url', None, {'pdf', 'pdf/a'}, 'PDF'),
+    ('image_view', 'image_url', 'ckan.preview.image_formats', 'Image'),
+    ('audio_view', 'audio_url', 'ckan.preview.audio_formats', 'Audio'),
+    ('video_view', 'video_url', 'ckan.preview.video_formats', 'Video'),
 )
+
+# No PDF preview: Zenodo serves every file as a download that can't be
+# embedded (application/octet-stream, Content-Disposition: attachment,
+# X-Frame-Options: sameorigin - checked on the sandbox), and pdf_view's
+# <object> respects that: only a blank box shows. CKAN creates a pdf_view
+# for any PDF resource by default, so it's removed instead; "Go to
+# resource" opens the file in Zenodo's own preview.
+_NO_PREVIEW = {'pdf': 'pdf_view', 'pdf/a': 'pdf_view'}
 
 
 def zenodo_file_content_url(record_id, sandbox, filename):
@@ -82,25 +86,21 @@ def zenodo_file_content_url(record_id, sandbox, filename):
 
 def _view_kind_for_format(fmt):
     fmt = (fmt or '').lower()
-    for view_type, url_field, config_key, fixed_formats, title in _VIEW_KINDS:
-        if fixed_formats is not None:
-            formats = fixed_formats
-        else:
-            formats = {
-                f.lower() for f in (toolkit.config.get(config_key) or '').split()
-            }
+    for view_type, url_field, config_key, title in _VIEW_KINDS:
+        formats = {f.lower() for f in (toolkit.config.get(config_key) or '').split()}
         if fmt in formats:
             return view_type, url_field, title
     return None
 
 
 def sync_media_preview(resource_id, fmt, content_url, user_name):
-    """Ensures exactly one view of the right kind (Image/Audio/Video/
-    PDF, picked from `fmt`) on this resource points at `content_url` -
+    """Ensures exactly one view of the right kind (Image/Audio/Video,
+    picked from `fmt`) on this resource points at `content_url` -
     updates CKAN's own auto-created one if present, creates one
     otherwise (defensive - core's default-view creation should already
     have made one for anything with a matching format). No-op if `fmt`
     doesn't match any of these, or if content_url isn't known yet.
+    A PDF's own view is deleted instead (see _NO_PREVIEW).
 
     `user_name` must be a real user (e.g. the site user - see
     publish_guard.py's own get_site_user call for why): confirmed
@@ -114,6 +114,10 @@ def sync_media_preview(resource_id, fmt, content_url, user_name):
     stale) preview is a cosmetic gap, not a reason to fail the
     publish/republish job that called this."""
     if not content_url:
+        return
+    unusable_view = _NO_PREVIEW.get((fmt or '').lower())
+    if unusable_view:
+        _delete_views(resource_id, unusable_view, user_name)
         return
     kind = _view_kind_for_format(fmt)
     if kind is None:
@@ -147,6 +151,24 @@ def sync_media_preview(resource_id, fmt, content_url, user_name):
     except Exception:
         log.exception(
             'media_preview: failed to sync the %s view for resource %s',
+            view_type,
+            resource_id,
+        )
+
+
+def _delete_views(resource_id, view_type, user_name):
+    context = {'ignore_auth': True, 'user': user_name}
+    try:
+        for view in toolkit.get_action('resource_view_list')(
+            context, {'id': resource_id}
+        ):
+            if view.get('view_type') == view_type:
+                toolkit.get_action('resource_view_delete')(context, {'id': view['id']})
+    except toolkit.ObjectNotFound:
+        pass
+    except Exception:
+        log.exception(
+            'media_preview: failed to remove the %s view of resource %s',
             view_type,
             resource_id,
         )

@@ -155,6 +155,12 @@ def _publish_deposition(package_id):
             'publish_guard: package %s not found - skipping publish', package_id
         )
         return
+    # Checked again when the job runs, not only when it was queued: a
+    # dataset made private or deleted meanwhile must not get a permanent,
+    # public Zenodo record.
+    if pkg_dict.get('private') or pkg_dict.get('state') != 'active':
+        log.info('publish_guard: package %s no longer public - skipping', package_id)
+        return
 
     deposition = ZenodoDepositionQuery.read_package(package_id)
     if deposition is None or deposition.published:

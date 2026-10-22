@@ -7,6 +7,7 @@ leaking between tests."""
 import io
 
 import pytest
+from ckan import model
 from ckan.tests import factories
 
 from ckanext.zenodo.blueprints import zenodo_upload as blueprint_module
@@ -582,3 +583,54 @@ def test_upload_capacity_without_a_token(app):
     )
 
     assert response.status_code == 503
+
+
+def _pending_file(dataset):
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'pending.zip')
+    model.repo.commit()
+
+
+def test_delete_pending_file_needs_edit_rights_on_the_dataset(app, monkeypatch):
+    dataset = factories.Dataset(owner_org=factories.Organization()['id'])
+    _pending_file(dataset)
+    stranger = factories.UserWithToken()
+    monkeypatch.setattr(
+        blueprint_module.delete_zenodo_file,
+        'delete_pending_file',
+        lambda *a: pytest.fail('must not delete'),
+    )
+
+    response = app.flask_app.test_client().delete(
+        f'/zenodo/upload/{dataset["name"]}/pending.zip',
+        headers={'Authorization': stranger['token']},
+    )
+
+    assert response.status_code == 403
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == ['pending.zip']
+
+
+def test_delete_pending_file_by_an_editor(app, monkeypatch):
+    dataset = factories.Dataset(owner_org=factories.Organization()['id'])
+    _pending_file(dataset)
+    user = factories.SysadminWithToken()
+    monkeypatch.setattr(
+        zenodo_client,
+        'get_deposition',
+        lambda *a, **k: {'files': [{'id': 'f-1', 'filename': 'pending.zip'}]},
+    )
+    deleted = []
+    monkeypatch.setattr(
+        zenodo_client,
+        'delete_deposition_file',
+        lambda dep_id, file_id, *a, **k: deleted.append((dep_id, file_id)),
+    )
+
+    response = app.flask_app.test_client().delete(
+        f'/zenodo/upload/{dataset["name"]}/pending.zip',
+        headers={'Authorization': user['token']},
+    )
+
+    assert response.status_code == 200
+    assert deleted == [('dep-1', 'f-1')]
+    assert ZenodoDepositionQuery.list_filenames(dataset['id']) == []
