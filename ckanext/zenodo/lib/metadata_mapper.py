@@ -90,78 +90,17 @@ RESOURCE_TYPE_GENERAL_TO_UPLOAD_TYPE = {
 }
 ZENODO_UPLOAD_TYPE_FALLBACK = 'other'
 
-# subjectScheme values the FDF converter is actually capable of emitting
-# for biological annotations, mapped to one readable label each -
-# confirmed either against a real gene/allele FDF dataset's
-# fdf_output_json directly (NCBITaxon, PATO, speciesBackground,
-# geneAccessionId/geneSymbol, the NCBI/MGI/Ensembl Gene cross-refs,
-# geneChromosomeLocation, geneMutationType, alleleAccessionId/
-# alleleSymbol, MGI/Alliance Allele) or against datacite_converter.py's
-# own "FAIR3R form summary" builder, which documents in its own code
-# exactly what each of ChEBI/MONDO/DOID/UBERON/EFO represents for this
-# pipeline (treatments, disease models, tissues/organs, diets).
-#
-# Several schemes share a label on purpose: a gene (or allele) cross-
-# referenced across multiple databases produces one subjects entry per
-# database, all naming the *same* real-world gene/allele - mapping them
-# all to the same label lets _split_labeled_subjects' (label, value)
-# dedup collapse e.g. 5 "Apoe" entries (one per database) into a single
-# "Gene: Apoe" line instead of five.
-#
-# This table is deliberately NOT meant to be exhaustive forever: the FDF
-# form is driven by a dynamic JSON schema, so a scheme this pipeline has
-# never seen can appear without a code change here - _subject_label()
-# falls back to _humanize_scheme_label() for anything not listed below,
-# rather than ever downgrading a subject to a plain, unlabeled keyword
-# (that fallback bucket is reserved for the dataset's own CKAN tags now,
-# see map_keywords's own docstring for why).
-SUBJECT_SCHEME_TO_LABEL = {
-    'NCBITaxon': 'Organism',
-    'PATO': 'Sex',
-    'speciesBackground': 'Strain',
-    'Strain': 'Strain',
-    'geneSymbol': 'Gene',
-    'geneName': 'Gene',
-    'geneAccessionId': 'Gene',
-    'NCBI Gene': 'Gene',
-    'MGI Gene': 'Gene',
-    'Ensembl Gene': 'Gene',
-    'geneChromosomeLocation': 'Chromosome location',
-    'geneMutationType': 'Mutation type',
-    'alleleSymbol': 'Allele',
-    'alleleAccessionId': 'Allele',
-    'MGI Allele': 'Allele',
-    'Alliance Allele': 'Allele',
-    'ChEBI': 'Treatment',
-    'treatmentName': 'Treatment',
-    'treatmentProtocol': 'Treatment protocol',
-    'treatmentDesign': 'Treatment design',
-    'MONDO': 'Disease model',
-    'DOID': 'Disease model',
-    'UBERON': 'Tissue / organ',
-    'EFO': 'Diet',
-}
-
 
 def _humanize_scheme_label(scheme):
-    """Turns an arbitrary subjectScheme string into a readable label,
-    for any scheme not already in SUBJECT_SCHEME_TO_LABEL above - e.g.
-    "treatmentProtocol" -> "Treatment Protocol". Not guaranteed to read
-    perfectly for every possible scheme string (an acronym glued
-    straight onto a word, e.g. a hypothetical "XYZTaxon", stays glued -
-    there is no way to tell where the acronym ends without already
-    knowing it, which is exactly why the well-known ones above are
-    listed explicitly instead of relying on this), but always something
-    more useful than silently dropping the value or mislabeling it."""
+    """A readable label from a subjectScheme string, e.g.
+    "treatmentProtocol" -> "Treatment Protocol". Only for when
+    ckanext-fair3r can't label subjects from the FDF schema (see
+    _split_labeled_subjects)."""
     if not scheme:
         return 'Other'
     spaced = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', scheme)
     words = spaced.split()
     return ' '.join(w if w.isupper() else w[:1].upper() + w[1:] for w in words)
-
-
-def _subject_label(scheme):
-    return SUBJECT_SCHEME_TO_LABEL.get(scheme) or _humanize_scheme_label(scheme)
 
 
 _ORCID_SCHEME = 'ORCID'
@@ -244,31 +183,31 @@ def map_keywords(tags):
     return keywords
 
 
-def _split_labeled_subjects(subjects):
-    """Every FDF subject becomes a (label, value) pair - a known
-    biological-annotation category via SUBJECT_SCHEME_TO_LABEL, or
-    _humanize_scheme_label()'s generic fallback for anything else (see
-    _subject_label). Never a plain, unlabeled keyword - see this
-    module's own docstring note on map_keywords for why that bucket is
-    reserved for the dataset's CKAN tags instead.
+def _split_labeled_subjects(subjects, subject_lines=None):
+    """Every FDF subject as a (label, value) pair. `subject_lines` is
+    ckanext-fair3r's [(label, values)], labelled from the FDF schema's own
+    display_mapping (see publish_guard.py) - no scheme list in this plugin,
+    so a new ontology or form section needs no change here. Without it
+    (fair3r missing or older), each DataCite subject goes under its
+    humanized scheme name. Never a plain, unlabeled keyword - see
+    map_keywords for why that bucket is the dataset's CKAN tags.
 
-    Deduplicated by (label, value), case-insensitive, first occurrence
-    kept - a gene (or allele) cross-referenced across several databases
-    legitimately has one `subjects` entry per database, all mapping to
-    the same label and sharing the same text (e.g. "Apoe" five times
-    over), which would otherwise show up as a literal, repeated
-    "Gene: Apoe" five times - same deduplication idea
-    datacite_converter.py itself already applies to the full subjects
-    list for a related reason."""
+    Deduplicated by (label, value), case-insensitive, first kept."""
+    if subject_lines is not None:
+        pairs = [(label, value) for label, values in subject_lines for value in values]
+    else:
+        pairs = [
+            (
+                _humanize_scheme_label(subject.get('subjectScheme')),
+                (subject.get('subject') or '').strip(),
+            )
+            for subject in subjects or []
+        ]
     labeled = []
     seen = set()
-    for subject in subjects or []:
-        text = (subject.get('subject') or '').strip()
-        if not text:
-            continue
-        label = _subject_label(subject.get('subjectScheme'))
+    for label, text in pairs:
         key = (label, text.lower())
-        if key in seen:
+        if not text or key in seen:
             continue
         seen.add(key)
         labeled.append((label, text))
@@ -326,6 +265,7 @@ def build_zenodo_description_html(
     tags=None,
     source_doi=None,
     source_doi_url=None,
+    subject_lines=None,
 ):
     """`tags` is the dataset's own CKAN tags (package_show's `tags`
     list), not part of the DataCite dict - passed in explicitly by the
@@ -369,7 +309,9 @@ def build_zenodo_description_html(
         if names:
             lines.append(f'<p><strong>🧑‍🔬 Creators:</strong> {escape(names)}</p>')
 
-    labeled_subjects = _split_labeled_subjects(datacite_metadata.get('subjects'))
+    labeled_subjects = _split_labeled_subjects(
+        datacite_metadata.get('subjects'), subject_lines
+    )
     if labeled_subjects:
         items = ''.join(
             f'<li><strong>{escape(label)}:</strong> {escape(value)}</li>'
@@ -402,6 +344,7 @@ def datacite_to_zenodo(
     license_id=None,
     source_doi=None,
     source_doi_url=None,
+    subject_lines=None,
 ):
     """Build a Zenodo deposition metadata dict from a
     `DataCiteConverter.fdf_to_datacite()`-shaped dict plus the handful of
@@ -412,7 +355,12 @@ def datacite_to_zenodo(
     metadata = {
         'title': title,
         'description': build_zenodo_description_html(
-            datacite_metadata, submitter_display_name, tags, source_doi, source_doi_url
+            datacite_metadata,
+            submitter_display_name,
+            tags,
+            source_doi,
+            source_doi_url,
+            subject_lines,
         ),
         'upload_type': map_upload_type(datacite_metadata.get('types')),
         'access_right': access_right,
