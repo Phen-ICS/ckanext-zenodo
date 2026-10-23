@@ -19,6 +19,7 @@ from ckanext.zenodo.lib.helpers import (
     zenodo_notice_for_package,
     zenodo_pending_deposition_for_package,
     zenodo_standalone_upload_config,
+    zenodo_uploads_for_package,
 )
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 
@@ -117,6 +118,7 @@ class ZenodoPlugin(plugins.SingletonPlugin, DefaultTranslation):
             'zenodo_delete_impact': zenodo_delete_impact,
             'zenodo_description_parts': zenodo_description_parts,
             'zenodo_standalone_upload_config': zenodo_standalone_upload_config,
+            'zenodo_uploads_for_package': zenodo_uploads_for_package,
         }
 
     # IPackageController

@@ -43,7 +43,7 @@ Database: `ckan db upgrade -p zenodo` after installing or upgrading.
 | Command | Use |
 |---|---|
 | `ckan zenodo check` | Verifies, against Zenodo, that a token is set for the current mode, Zenodo accepts it, it can use the deposit API, the community exists and the token's account is owner, manager or curator of it. Exits 1 on the first problem - suitable at the end of a deploy. |
-| `ckan zenodo retry-pending [--limit 10] [--min-age 30] [--include-failed]` | Re-enqueues unpublished depositions of active public datasets (cron, every 30 min). Lists those past `max_publish_attempts`; `--include-failed` retries them with a fresh count. |
+| `ckan zenodo retry-pending [--limit 10] [--min-age 30] [--include-failed]` | Re-enqueues unpublished depositions of active public datasets (cron, every 30 min). Lists those past `max_publish_attempts`; `--include-failed` retries them with a fresh count. Also tidies chunked uploads: re-sends failed ones (3 attempts), marks interrupted sends failed, removes abandoned ones (2 h) and those that gave up (a day after). |
 | `ckan zenodo disk-reservations show` | Disk space reserved by uploads in flight, and what's available |
 | `ckan zenodo disk-reservations clear` | Resets the reservation counter - only if a worker died during an upload and left a reservation behind |
 
@@ -77,7 +77,9 @@ the repository root `test.ini` - keep their plugin lists in sync.
 | 429 on upload | User's hourly request or byte budget used up | Wait for the next hour, or raise the limits |
 | 507 on upload | Not enough free disk for the upload plus the margin | Free disk space; if nothing is uploading, check `disk-reservations show` |
 | 409 on upload | Record would exceed Zenodo's file count or total size | Split the files over datasets, or ask Zenodo to raise the limits for the account |
-| 413 from nginx | File bigger than nginx's body size limit | Align nginx's limit for `/zenodo/upload/` with `max_file_size_bytes` |
+| 413 from nginx | Only the older single-request upload: file bigger than nginx's limit for `/zenodo/upload/` | Chunked uploads (16 MB requests) don't hit it |
+| "Sending to Zenodo failed" on the dataset page | Zenodo down, token rejected, or the worker was killed mid-send | Worker logs; `ckan zenodo check`; **Retry** on the page, or wait for `retry-pending` |
+| A file stays "Received - being sent to Zenodo" | The worker isn't running, or is busy with a long send | `systemctl status ckan-worker`; the worker sends one file at a time |
 | Files stay "being archived" | Publish job failing, or the worker not running | Worker logs; `ckan zenodo check`; `ckan zenodo retry-pending` |
 | "Archiving keeps failing" on the dataset page | `max_publish_attempts` reached | Fix the cause, then edit the dataset or run `retry-pending --include-failed` |
 | Record published but not in the community | Token's account can't accept inclusion requests | `ckan zenodo check`; make the account owner/manager/curator; accept the request on Zenodo |

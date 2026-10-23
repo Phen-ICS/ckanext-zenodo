@@ -55,7 +55,12 @@ def _request(method, url, access_token, *, timeout=REQUEST_TIMEOUT, **kwargs):
 
     backoff = INITIAL_BACKOFF_SECONDS
     last_error = None
+    data = kwargs.get('data')
     for attempt in range(1, MAX_RETRIES + 1):
+        if hasattr(data, 'seek'):
+            # A retried upload would otherwise send whatever the failed
+            # attempt left unread - nothing, for a fully read file.
+            data.seek(0)
         try:
             resp = requests.request(
                 method, url, headers=headers, timeout=timeout, **kwargs

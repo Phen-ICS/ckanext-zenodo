@@ -53,7 +53,8 @@ from ckan.plugins import toolkit
 from flask import g, has_app_context
 
 from ckanext.zenodo.lib import zenodo_config
-from ckanext.zenodo.model import ZenodoDepositionQuery
+from ckanext.zenodo.lib.chunked_upload import MAX_SEND_ATTEMPTS
+from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
 
 # Keyed by the short code ZenodoDepositionQuery.set_notice() stores (see
 # publish_guard.py/delete_zenodo_file.py's own call sites) - a plain string
@@ -128,7 +129,7 @@ def zenodo_pending_deposition_for_package(pkg_dict):
 
     Excludes any filename that already has a real CKAN resource: a
     deposition can go published -> unpublished again (zenodo_upload.py's
-    own _bucket_for_upload, for a file added after the dataset's first
+    chunked_upload.bucket_for_upload, for a file added after the dataset's first
     publish - see its own docstring) while some of its files already
     have one from that earlier publish. Without this filter, every one
     of them would show here *again*, duplicating what's already in the
@@ -206,3 +207,22 @@ def zenodo_standalone_upload_config():
         return None
     config = zenodo_config.routing_config_dict()
     return json.dumps(config) if config else None
+
+
+def zenodo_uploads_for_package(pkg_dict):
+    """Chunked uploads not yet on Zenodo (lib/chunked_upload.py), for the
+    dataset's editors: being received, waiting for or being sent to Zenodo,
+    or failed - with whether another automatic attempt is still coming."""
+    package_id = pkg_dict.get('id')
+    if not package_id:
+        return []
+    return [
+        {
+            'id': upload.id,
+            'filename': upload.filename,
+            'status': upload.status,
+            'error': upload.error,
+            'will_retry': (upload.send_attempts or 0) < MAX_SEND_ATTEMPTS,
+        }
+        for upload in ZenodoUploadQuery.for_package(package_id)
+    ]

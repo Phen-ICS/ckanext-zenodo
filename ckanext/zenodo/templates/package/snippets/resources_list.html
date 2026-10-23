@@ -38,6 +38,83 @@
       {{ zenodo_notice.message }}
     </div>
   {% endif %}
+  {# Files uploaded in chunks and not yet on Zenodo (lib/chunked_upload.py):
+     being sent by the background job, or failed - for the dataset's
+     editors, who can retry or drop a failed one. #}
+  {% set zenodo_uploads = h.zenodo_uploads_for_package(pkg) if h.check_access('package_update', {'id': pkg.id}) else [] %}
+  {% if zenodo_uploads %}
+    <ul class="resource-list zenodo-uploads">
+      {% for upload in zenodo_uploads %}
+        {% set ext = upload.filename.rsplit('.', 1)[-1].lower() if '.' in upload.filename else 'data' %}
+        <li class="resource-item zenodo-pending-item">
+          <span class="heading" title="{{ upload.filename }}">
+            {{ upload.filename }}
+            <span class="format-label" data-format="{{ ext }}">{{ ext }}</span>
+          </span>
+          <p class="description">
+            {% if upload.status == 'receiving' %}
+              {{ _('Upload not finished - it is removed after two hours without news.') }}
+            {% elif upload.status == 'failed' %}
+              <strong class="text-danger">{{ _('Sending to Zenodo failed:') }}</strong>
+              {{ _(upload.error) if upload.error else '' }}
+              {% if upload.will_retry %}
+                {{ _('Another attempt is made automatically within the next hour.') }}
+              {% else %}
+                {{ _('No more automatic attempts: retry it, or remove it (it is removed after a day otherwise).') }}
+              {% endif %}
+            {% else %}
+              {{ _('Received - being sent to Zenodo, reload this page in a moment.') }}
+            {% endif %}
+          </p>
+          <div class="btn-group">
+            {% if upload.status == 'failed' %}
+              <button type="button" class="btn btn-primary btn-sm zenodo-upload-action"
+                      data-method="POST"
+                      data-url="{{ h.url_for('zenodo_upload.chunked_retry', package_name=pkg.name, upload_id=upload.id) }}"
+              >{{ _('Retry') }}</button>
+            {% endif %}
+            {% if upload.status != 'sending' %}
+              <button type="button" class="btn btn-danger btn-sm zenodo-upload-action"
+                      data-method="DELETE"
+                      data-confirm="{{ _('Remove') }} {{ upload.filename }}?"
+                      data-url="{{ h.url_for('zenodo_upload.chunked_cancel', package_name=pkg.name, upload_id=upload.id) }}"
+              >{{ _('Remove') }}</button>
+            {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        $(document).on("click", ".zenodo-upload-action", function () {
+          var $button = $(this);
+          var question = $button.data("confirm");
+          if (question && !window.confirm(question)) {
+            return;
+          }
+          $button.prop("disabled", true);
+          var fieldName = $('meta[name="csrf_field_name"]').attr("content");
+          var token = fieldName ? $('meta[name="' + fieldName + '"]').attr("content") : null;
+          var headers = token ? { "X-CSRFToken": token } : {};
+          fetch($button.data("url"), {
+            method: $button.data("method"),
+            credentials: "same-origin",
+            headers: headers
+          }).then(function (response) {
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              $button.prop("disabled", false);
+              window.alert({{ _('Could not do it - try again shortly.') | tojson }});
+            }
+          }).catch(function () {
+            $button.prop("disabled", false);
+            window.alert({{ _('Network error.') | tojson }});
+          });
+        });
+      });
+    </script>
+  {% endif %}
   {% set zenodo_pending = h.zenodo_pending_deposition_for_package(pkg) %}
   {% if zenodo_pending %}
     {% set zenodo_can_edit = h.check_access('package_update', {'id': pkg.id}) %}

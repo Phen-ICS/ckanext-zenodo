@@ -15,7 +15,6 @@
     {% asset 'zenodo/upload' %}
     <div id="zenodo-upload-option" class="form-group"
          data-config="{{ zenodo_config }}"
-         data-upload-url="{{ h.url_for('zenodo_upload.upload', package_name=pkg_name) }}"
          data-package-url="{{ h.url_for(dataset_type ~ '.read', id=pkg_name) }}"
          data-revise-url="{{ h.url_for('api.action', logic_function='package_revise', ver=3) }}"
          data-package-name="{{ pkg_name }}"

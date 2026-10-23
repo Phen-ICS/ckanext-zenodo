@@ -48,7 +48,8 @@ def test_new_resource_form_has_the_zenodo_option(app):
     html = _get(app, f'/dataset/{dataset["name"]}/resource/new', user)
 
     assert 'id="zenodo-upload-option"' in html
-    assert f'data-upload-url="/zenodo/upload/{dataset["name"]}"' in html
+    # Uploads in chunks to /zenodo/uploads/<dataset> (zenodo-chunked-upload.js).
+    assert f'data-package-name="{dataset["name"]}"' in html
     assert f'data-package-url="/dataset/{dataset["name"]}"' in html
     assert '_upload.js' in html
 

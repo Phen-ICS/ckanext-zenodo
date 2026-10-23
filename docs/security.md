@@ -9,7 +9,8 @@ protection has to happen in CKAN, before anything reaches Zenodo.
 
 | Action | Required |
 |---|---|
-| Upload a file to Zenodo | Logged in, and CKAN's `resource_create` permission on the dataset - the same as adding any resource |
+| Upload a file to Zenodo | Logged in, and CKAN's `resource_create` permission on the dataset - the same as adding any resource. Chunks, finish and status: only the user who started the upload |
+| Retry or remove a failed chunked upload | `package_update` on the dataset (removing: also the user who started it) |
 | Remove a pending (unpublished) file | Logged in, `package_update` permission on the dataset |
 | Delete a published file (CKAN resource) | CKAN's `resource_delete` rule, except the last file of a published record (refused) |
 | Publish to Zenodo | Nobody directly: it follows from the dataset becoming active and public, which requires CKAN's own permission to change its visibility |
@@ -70,9 +71,13 @@ The browser-side routing and messages are a convenience, never trusted.
 ## Known limitations
 
 - **Uploads transit through the server's disk.** The browser can't
-  upload straight to Zenodo without the shared token, so each upload is
-  spooled to a temporary file first. Disk space must be sized for the
-  largest accepted file plus the safety margin.
+  upload straight to Zenodo without the shared token, so each file is
+  assembled on the server first (`<ckan.storage_path>/zenodo_uploads/`),
+  and kept there while its send is retried. Disk space must be sized for
+  the largest accepted file plus the safety margin.
+- **One file sent at a time.** The CKAN worker sends chunked uploads
+  to Zenodo; a large file keeps it busy (other jobs - xloader, publishes -
+  wait meanwhile).
 - **Published files can't be removed from Zenodo.** Deleting a file or
   the dataset only removes it from new versions; earlier versions keep
   it. Withdrawing a record needs Zenodo support.

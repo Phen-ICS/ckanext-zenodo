@@ -17,20 +17,20 @@ increment itself happens first and is what's checked. There's
 deliberately no TTL on the shared counter itself - a TTL on a value that
 several independent reservations share would expire the whole thing (and
 silently wipe other still-active reservations) as soon as the first one's
-TTL elapsed, not when it's actually released. Instead, every call site
-releases in a `finally` block (see zenodo_upload.py), which this
-deployment's Waitress server (a synchronous, one-thread-per-request WSGI
-server - see ckan.ini.template's [server:main]) runs reliably even on a
-client disconnect; `ckan zenodo disk-reservations` (cli.py) is the manual
-escape hatch for the rare case a worker is killed before its `finally`
-runs.
+TTL elapsed, not when it's actually released. Instead, the single-request
+upload releases in a `finally` block (zenodo_upload.py), and a chunked
+upload when its file is sent or dropped (chunked_upload.discard - also
+for abandoned ones, by `retry-pending`); `ckan zenodo disk-reservations`
+(cli.py) is the manual escape hatch for a worker killed before releasing.
 """
 
 import logging
+import os
 import shutil
 import tempfile
 
 from ckan.lib.redis import connect_to_redis
+from ckan.plugins import toolkit
 
 from ckanext.zenodo.lib import zenodo_config
 
@@ -46,11 +46,13 @@ class DiskSpaceExceeded(Exception):
 
 
 def disk_free_bytes():
-    """Free space where Werkzeug actually spools the incoming multipart
-    body - the OS/environment's own temp dir (TMPDIR), not anything
-    configurable through CKAN. A thin wrapper around shutil.disk_usage
-    only so tests have one obvious seam to patch."""
-    return shutil.disk_usage(tempfile.gettempdir()).free
+    """Free space where uploads are written: the temp dir (TMPDIR), where
+    Werkzeug spools a single-request upload's body, and ckan.storage_path,
+    where chunked uploads are assembled (lib/chunked_upload.py) - the
+    smaller of the two, as either may hold the next file. Also the one
+    seam tests patch."""
+    paths = {tempfile.gettempdir(), toolkit.config.get('ckan.storage_path')}
+    return min(shutil.disk_usage(p).free for p in paths if p and os.path.isdir(p))
 
 
 def reserved_bytes():

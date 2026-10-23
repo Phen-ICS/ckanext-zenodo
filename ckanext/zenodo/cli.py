@@ -84,7 +84,11 @@ def retry_pending(limit, min_age, include_failed):
     publishes that are probably just still queued; a job that fails
     again simply gets picked up by the next run - up to
     ckanext.zenodo.max_publish_attempts, then it's left alone (and
-    listed here) until --include-failed or an edit of the dataset."""
+    listed here) until --include-failed or an edit of the dataset.
+
+    Also tidies chunked uploads (lib/chunked_upload.py): drops abandoned
+    ones, marks interrupted sends as failed, re-sends failed ones (up to
+    MAX_SEND_ATTEMPTS), and drops those that gave up a day ago."""
     from datetime import datetime, timedelta, timezone
 
     from ckan import model
@@ -142,6 +146,14 @@ def retry_pending(limit, min_age, include_failed):
             title=f'ckanext-zenodo retry-pending: publish {package_id}',
         )
     click.echo(f'Re-queued {len(package_ids)} pending Zenodo publish(es).')
+
+    from ckanext.zenodo.lib import chunked_upload
+
+    counts = chunked_upload.housekeeping()
+    click.echo(
+        'Chunked uploads: {retried} re-sent, {interrupted} interrupted, '
+        '{abandoned} abandoned and {expired} expired removed.'.format(**counts)
+    )
 
 
 @zenodo.command(name='check')

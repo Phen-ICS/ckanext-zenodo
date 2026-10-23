@@ -43,7 +43,7 @@ Declared in `plugin.py`:
 
 | Interface | What it's used for |
 |---|---|
-| `IBlueprint` | `/zenodo/upload/<dataset>` (POST), `/zenodo/upload/<dataset>/<filename>` (DELETE), `/zenodo/upload-capacity` (GET) |
+| `IBlueprint` | Chunked upload `/zenodo/uploads/<dataset>` (POST start), `.../<upload>/chunk` (PUT), `.../finish`, `.../retry` (POST), `.../<upload>` (GET status, DELETE); older single-request `/zenodo/upload/<dataset>` (POST); `/zenodo/upload/<dataset>/<filename>` (DELETE a pending file); `/zenodo/upload-capacity` (GET) |
 | `IPackageController.after_dataset_update` | Enqueue the publish job when a dataset with pending files is active and public |
 | `IResourceController.before_resource_delete` / `after_resource_delete` | Remove a published file from Zenodo once its CKAN resource is really deleted |
 | `IActions` (chained) | `package_update`, `package_delete`, `dataset_purge` - what happens on Zenodo when a dataset is deleted, purged or made private |
@@ -70,7 +70,8 @@ Templates overridden:
 
 | Module | Responsibility |
 |---|---|
-| `blueprints/zenodo_upload.py` | Upload, pending-file delete and capacity endpoints; all upload checks |
+| `blueprints/zenodo_upload.py` | Upload (chunked and single-request), pending-file delete and capacity endpoints; all upload checks |
+| `lib/chunked_upload.py` | Chunk writing, the send-to-Zenodo job, retries and cleanup of chunked uploads |
 | `lib/zenodo_client.py` | Thin Zenodo REST client (no CKAN import): retries with exponential backoff on 429/5xx/network errors, bearer token in the `Authorization` header |
 | `lib/zenodo_config.py` | Reads every `ckanext.zenodo.*` setting with its default |
 | `lib/publish_guard.py` | Publish trigger and job, metadata assembly, CKAN resource creation, community acceptance, Zenodo URLs |
@@ -114,6 +115,13 @@ on `package_id`).
 A row with `concept_record_id` set has been published at least once:
 its files can no longer be deleted from Zenodo, only superseded by a new
 version.
+
+`fair_zenodo_upload`: one row per chunked upload, from its start until
+the file is on Zenodo (then deleted). `package_id` (FK, cascade),
+`user_id`, `filename`, `size`, `received` (bytes so far), `forced`,
+`status` (`receiving`, `queued`, `sending`, `failed`), `error` (shown to
+editors), `send_attempts`, `created`, `updated`. The bytes are in
+`<ckan.storage_path>/zenodo_uploads/<id>`, never in the database.
 
 ## Dependencies on other extensions
 

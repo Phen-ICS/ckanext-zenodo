@@ -1,4 +1,11 @@
 upload:
   output: zenodo/%(version)s_upload.js
   contents:
+    - js/zenodo-chunked-upload.js
     - js/zenodo-upload.js
+
+# For ckanext-fair3r's resource form (its resource-upload.js).
+chunked:
+  output: zenodo/%(version)s_chunked.js
+  contents:
+    - js/zenodo-chunked-upload.js

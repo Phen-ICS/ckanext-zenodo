@@ -36,6 +36,7 @@ from ckan.plugins import toolkit
 from flask import Blueprint, jsonify, request
 
 from ckanext.zenodo.lib import (
+    chunked_upload,
     delete_zenodo_file,
     disk_guard,
     rate_limit,
@@ -44,7 +45,8 @@ from ckanext.zenodo.lib import (
     zenodo_config,
 )
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
-from ckanext.zenodo.model import ZenodoDepositionQuery
+from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
+from ckanext.zenodo.model import zenodo_upload as upload_states
 
 log = logging.getLogger(__name__)
 
@@ -73,37 +75,23 @@ def _is_xloader_readable(filename, mimetype):
     return ext in formats or mimetype in formats
 
 
-def _bucket_for_upload(deposition, token, sandbox):
-    """Where to PUT the next file - deposition.bucket_url as-is for the
-    common case (deposition still open/unpublished, or doesn't exist yet
-    - see get_or_create_open_deposition), or a *new draft version*'s own
-    bucket if the dataset's deposition is already published.
-
-    Found by real testing: PUTting into an already-published
-    deposition's own bucket_url silently "succeeds" (Zenodo accepts the
-    write at the storage layer) but the file never appears on the
-    public record at all, since nothing re-publishes - confirmed
-    empirically (uploaded a file to an already-published deposition's
-    bucket, got a 200, but GET .../records/<id> never listed it).
-    Zenodo's own supported way to add a file after publishing is the
-    exact same new-version-and-republish dance delete_zenodo_file.py
-    already uses for removing one - confirmed empirically that
-    POST .../actions/newversion's own response already carries the new
-    draft's `links.bucket` directly usable for an upload, no extra GET
-    needed.
-
-    Returns (bucket_url, new_draft_or_None) - deliberately not persisted
-    here: the caller only writes the new draft's id/bucket (and flips
-    `published` back to False) once the upload into it has actually
-    succeeded, so a failed upload leaves the still-valid, already-
-    published deposition's own id/bucket untouched in the DB rather than
-    pointing at an abandoned draft."""
-    if not deposition.published:
-        return deposition.bucket_url, None
-    new_draft = zenodo_client.create_new_version(
-        deposition.zenodo_deposition_id, token, sandbox=sandbox
-    )
-    return new_draft['links']['bucket'], new_draft
+def _file_rule_error(filename, mimetype, size, forced):
+    """Why this file can't go to Zenodo, or None. The same rules for the
+    single-request and the chunked upload, re-derived on the server
+    whatever the browser decided."""
+    if size <= 0:
+        return 'Empty file'
+    if size > zenodo_config.max_file_size_bytes():
+        return 'File too large'
+    if not forced:
+        fits_in_ckan = size <= zenodo_config.ckan_max_resource_size_bytes()
+        if fits_in_ckan and _is_xloader_readable(filename, mimetype):
+            return (
+                'This file is small enough and a readable format for '
+                'CKAN storage - use the normal upload instead, or tick '
+                '"force Zenodo" if you want it there anyway.'
+            )
+    return None
 
 
 def _check_record_limits(package_id, new_size):
@@ -197,20 +185,11 @@ def upload(package_name):
         forced = toolkit.asbool(request.form.get('force_zenodo', False))
 
         size = _file_size(uploaded)
-        if size <= 0:
-            return _error('Empty file')
-        if size > zenodo_config.max_file_size_bytes():
-            return _error('File too large')
-
-        if not forced:
-            fits_in_ckan = size <= zenodo_config.ckan_max_resource_size_bytes()
-            readable = _is_xloader_readable(uploaded.filename, uploaded.mimetype)
-            if fits_in_ckan and readable:
-                return _error(
-                    'This file is small enough and a readable format for '
-                    'CKAN storage - use the normal upload instead, or tick '
-                    '"force Zenodo" if you want it there anyway.'
-                )
+        rule_error = _file_rule_error(
+            uploaded.filename, uploaded.mimetype, size, forced
+        )
+        if rule_error:
+            return _error(rule_error)
 
         try:
             rate_limit.add_bytes(user_id, size, zenodo_config.max_bytes_per_hour())
@@ -241,7 +220,9 @@ def upload(package_name):
             return _error('Could not reach Zenodo - try again shortly', 502)
 
         try:
-            bucket_url, new_draft = _bucket_for_upload(deposition, token, sandbox)
+            bucket_url, new_draft = chunked_upload.bucket_for_upload(
+                deposition, token, sandbox
+            )
         except zenodo_client.ZenodoError:
             log.exception(
                 'Failed to create a new Zenodo version for package %s - '
@@ -265,7 +246,7 @@ def upload(package_name):
         if new_draft is not None:
             # The upload above landed in a *new draft version*'s bucket,
             # not the already-published deposition's own one - see
-            # _bucket_for_upload's own docstring. Only now, after that
+            # chunked_upload.bucket_for_upload's own docstring. Only now, after that
             # upload actually succeeded, point this package's row at the
             # new draft and mark it unpublished again, so this file
             # isn't silently lost on an abandoned draft if anything above
@@ -376,4 +357,236 @@ def delete_pending(package_name, filename):
     if not deleted:
         return _error('Nothing pending to delete for that file', 404)
 
+    return jsonify({'success': True})
+
+
+# Chunked upload (lib/chunked_upload.py): short requests only, then a
+# background job sends the file to Zenodo. Under /zenodo/uploads/, so
+# nginx's normal limits (20M body, default timeouts) apply - every chunk
+# fits them.
+
+
+def _package(package_name, permission):
+    """(pkg_dict, None), or (None, error response)."""
+    if current_user.is_anonymous:
+        return None, _error('Login required', 403)
+    context = {'user': current_user.name}
+    try:
+        pkg_dict = toolkit.get_action('package_show')(context, {'id': package_name})
+        data_dict = (
+            {'package_id': pkg_dict['id']}
+            if permission == 'resource_create'
+            else {'id': pkg_dict['id']}
+        )
+        toolkit.check_access(permission, context, data_dict)
+    except toolkit.ObjectNotFound:
+        return None, _error('Dataset not found', 404)
+    except toolkit.NotAuthorized:
+        return None, _error('Not authorized for this dataset', 403)
+    return pkg_dict, None
+
+
+def _own_upload(pkg_dict, upload_id):
+    """The upload, if it's this dataset's and this user's, else None."""
+    upload = ZenodoUploadQuery.get(upload_id)
+    if (
+        upload is None
+        or upload.package_id != pkg_dict['id']
+        or upload.user_id != current_user.id
+    ):
+        return None
+    return upload
+
+
+def _upload_json(upload):
+    response = jsonify(
+        {
+            'success': True,
+            'result': {
+                'upload_id': upload.id,
+                'filename': upload.filename,
+                'size': upload.size,
+                'received': upload.received,
+                'status': upload.status,
+                'error': toolkit._(upload.error) if upload.error else None,
+                'chunk_size': chunked_upload.CHUNK_SIZE,
+            },
+        }
+    )
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@zenodo_upload.route('/zenodo/uploads/<package_name>', methods=['POST'])
+def chunked_start(package_name):
+    """Every check of upload() above, once, for the whole file announced
+    as JSON {filename, size, mimetype, force_zenodo}; reserves its disk
+    space until the file is on Zenodo or the upload is dropped."""
+    if not zenodo_config.is_configured():
+        return _error(NOT_CONFIGURED, 503)
+    pkg_dict, error = _package(package_name, 'resource_create')
+    if error:
+        return error
+
+    body = request.get_json(silent=True) or {}
+    filename = str(body.get('filename') or '').strip()
+    try:
+        size = int(body.get('size'))
+    except (TypeError, ValueError):
+        return _error('Missing or invalid upload size')
+    if not filename or '/' in filename or '\\' in filename:
+        return _error('No file provided')
+    forced = toolkit.asbool(body.get('force_zenodo', False))
+
+    user_id = current_user.id
+    try:
+        rate_limit.check_and_increment_request(
+            user_id, zenodo_config.max_uploads_per_hour()
+        )
+        rate_limit.check_bytes_budget(user_id, zenodo_config.max_bytes_per_hour())
+    except rate_limit.RateLimitExceeded as e:
+        return _error(str(e), 429)
+
+    rule_error = _file_rule_error(filename, body.get('mimetype'), size, forced)
+    if rule_error:
+        return _error(rule_error)
+
+    try:
+        _check_record_limits(pkg_dict['id'], size)
+    except record_limits.RecordLimitExceeded as e:
+        return _error(str(e), 409)
+    except zenodo_client.ZenodoError:
+        log.exception(
+            'Failed to read the current Zenodo files for package %s', pkg_dict['id']
+        )
+        return _error('Could not reach Zenodo - try again shortly', 502)
+
+    try:
+        rate_limit.add_bytes(user_id, size, zenodo_config.max_bytes_per_hour())
+    except rate_limit.RateLimitExceeded as e:
+        return _error(str(e), 429)
+
+    try:
+        disk_guard.reserve(size)
+    except disk_guard.DiskSpaceExceeded as e:
+        return _error(str(e), 507)
+    try:
+        upload = ZenodoUploadQuery.create(
+            pkg_dict['id'], user_id, filename, size, forced
+        )
+        repo.commit()
+    except Exception:
+        disk_guard.release(size)
+        raise
+    return _upload_json(upload)
+
+
+@zenodo_upload.route(
+    '/zenodo/uploads/<package_name>/<upload_id>/chunk', methods=['PUT']
+)
+def chunked_chunk(package_name, upload_id):
+    """One chunk, as the raw request body, at ?offset=. Sending the chunk
+    at the current received size again replaces it - what the browser does
+    when an answer got lost."""
+    pkg_dict, error = _package(package_name, 'resource_create')
+    if error:
+        return error
+    upload = _own_upload(pkg_dict, upload_id)
+    if upload is None:
+        return _error('Upload not found', 404)
+    if upload.status != upload_states.RECEIVING:
+        return _error('This upload is no longer receiving chunks', 409)
+
+    try:
+        offset = int(request.args.get('offset', ''))
+    except ValueError:
+        return _error('Missing or invalid offset')
+    length = request.content_length or 0
+    if (
+        offset < 0
+        or offset > upload.received
+        or length <= 0
+        or length > chunked_upload.CHUNK_SIZE
+        or offset + length > upload.size
+    ):
+        return _error('Chunk out of range', 416)
+
+    try:
+        received = chunked_upload.write_chunk(upload, offset, request.stream, length)
+    except ValueError:
+        return _error('Incomplete chunk - send it again')
+    ZenodoUploadQuery.update(upload, received=received)
+    repo.commit()
+    return _upload_json(upload)
+
+
+@zenodo_upload.route(
+    '/zenodo/uploads/<package_name>/<upload_id>/finish', methods=['POST']
+)
+def chunked_finish(package_name, upload_id):
+    """All chunks in: the background job takes over the send to Zenodo."""
+    pkg_dict, error = _package(package_name, 'resource_create')
+    if error:
+        return error
+    upload = _own_upload(pkg_dict, upload_id)
+    if upload is None:
+        return _error('Upload not found', 404)
+    if upload.status != upload_states.RECEIVING:
+        return _upload_json(upload)
+    if upload.received != upload.size:
+        return _error('Some chunks are missing', 409)
+    chunked_upload.enqueue_send(upload)
+    return _upload_json(upload)
+
+
+@zenodo_upload.route('/zenodo/uploads/<package_name>/<upload_id>', methods=['GET'])
+def chunked_status(package_name, upload_id):
+    pkg_dict, error = _package(package_name, 'resource_create')
+    if error:
+        return error
+    upload = _own_upload(pkg_dict, upload_id)
+    if upload is None:
+        # Gone: on Zenodo now (or cancelled).
+        return _error('Upload not found', 404)
+    return _upload_json(upload)
+
+
+@zenodo_upload.route(
+    '/zenodo/uploads/<package_name>/<upload_id>/retry', methods=['POST']
+)
+def chunked_retry(package_name, upload_id):
+    """A failed send, sent again - by any editor of the dataset."""
+    pkg_dict, error = _package(package_name, 'package_update')
+    if error:
+        return error
+    upload = ZenodoUploadQuery.get(upload_id)
+    if upload is None or upload.package_id != pkg_dict['id']:
+        return _error('Upload not found', 404)
+    if upload.status != upload_states.FAILED:
+        return _error('Only a failed upload can be retried', 409)
+    chunked_upload.enqueue_send(upload)
+    return _upload_json(upload)
+
+
+@zenodo_upload.route('/zenodo/uploads/<package_name>/<upload_id>', methods=['DELETE'])
+def chunked_cancel(package_name, upload_id):
+    """Drops an upload not yet on Zenodo (its file and disk reservation) -
+    by the user sending it, or any editor of the dataset. Not while the
+    job is sending it."""
+    if current_user.is_anonymous:
+        return _error('Login required', 403)
+    pkg_dict, error = _package(package_name, 'resource_create')
+    if error:
+        return error
+    upload = ZenodoUploadQuery.get(upload_id)
+    if upload is None or upload.package_id != pkg_dict['id']:
+        return _error('Upload not found', 404)
+    if upload.user_id != current_user.id:
+        _, error = _package(package_name, 'package_update')
+        if error:
+            return error
+    if upload.status == upload_states.SENDING:
+        return _error('Being sent to Zenodo right now - try again shortly', 409)
+    chunked_upload.discard(upload)
+    repo.commit()
     return jsonify({'success': True})

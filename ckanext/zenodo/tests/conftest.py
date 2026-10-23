@@ -4,6 +4,8 @@ import re
 
 import pytest
 
+from ckanext.zenodo.lib import disk_guard, rate_limit, zenodo_client
+
 
 def _resolve_ckan_ini(session):
     ckan_ini = getattr(session.config.option, 'ckan_ini', '') or ''
@@ -82,7 +84,7 @@ def pytest_sessionstart(session):
 
 @pytest.fixture
 def zenodo_tables():
-    """Create this plugin's table in the test DB. The Alembic migration is
+    """Create this plugin's tables in the test DB. The Alembic migration is
     what creates it in a real environment; tests only need the schema, and
     create_all(checkfirst=True) is idempotent."""
     from ckan.model import meta
@@ -91,6 +93,87 @@ def zenodo_tables():
 
     meta.metadata.create_all(
         bind=meta.engine,
-        tables=[model.zenodo_deposition_table],
+        tables=[model.zenodo_deposition_table, model.zenodo_upload_table],
         checkfirst=True,
     )
+
+
+# Fakes for the upload tests (test_blueprint_upload.py, test_chunked_upload.py):
+# no real network, no real Redis state leaking between tests.
+
+
+class FakeRedis:
+    """Minimal in-memory stand-in for the handful of Redis calls
+    rate_limit.py and disk_guard.py make - avoids any real Redis state
+    leaking between tests (and avoids depending on Redis being reachable
+    at all here). Shared between both modules (same store) so a test
+    that exercises the real upload() view sees one consistent counter
+    set, same as in production where both read the same Redis."""
+
+    def __init__(self):
+        self.store = {}
+
+    def incr(self, key):
+        self.store[key] = self.store.get(key, 0) + 1
+        return self.store[key]
+
+    def incrby(self, key, amount):
+        self.store[key] = self.store.get(key, 0) + amount
+        return self.store[key]
+
+    def decrby(self, key, amount):
+        self.store[key] = self.store.get(key, 0) - amount
+        return self.store[key]
+
+    def expire(self, key, seconds):
+        pass
+
+    def get(self, key):
+        value = self.store.get(key)
+        return str(value).encode() if value is not None else None
+
+
+@pytest.fixture
+def fake_redis(monkeypatch):
+    fake = FakeRedis()
+    monkeypatch.setattr(rate_limit, 'connect_to_redis', lambda: fake)
+    monkeypatch.setattr(disk_guard, 'connect_to_redis', lambda: fake)
+    return fake
+
+
+@pytest.fixture
+def fake_disk_free(monkeypatch):
+    """Deterministic, generous free space by default - independent of
+    whatever's actually free on the machine running the tests. A test
+    that cares about the disk-full path overrides this directly."""
+    free = {'bytes': 20 * 1024**3}  # 20 GB
+    monkeypatch.setattr(disk_guard, 'disk_free_bytes', lambda: free['bytes'])
+    return free
+
+
+@pytest.fixture
+def fake_zenodo(monkeypatch):
+    calls = {'created': [], 'uploaded': [], 'files': []}
+
+    def fake_create_deposition(token, sandbox=False):
+        deposition_id = f'dep-{len(calls["created"]) + 1}'
+        calls['created'].append(deposition_id)
+        return {
+            'id': deposition_id,
+            'links': {'bucket': f'https://sandbox.zenodo.org/bucket/{deposition_id}'},
+        }
+
+    def fake_upload_file_to_bucket(bucket_url, filename, file_obj, access_token):
+        calls['uploaded'].append((bucket_url, filename))
+        calls['files'].append({'filename': filename, 'filesize': len(file_obj.read())})
+        return {'filename': filename}
+
+    def fake_get_deposition(deposition_id, access_token, sandbox=False):
+        return {'files': list(calls['files'])}
+
+    monkeypatch.setattr(zenodo_client, 'create_deposition', fake_create_deposition)
+    monkeypatch.setattr(
+        zenodo_client, 'upload_file_to_bucket', fake_upload_file_to_bucket
+    )
+    monkeypatch.setattr(zenodo_client, 'get_deposition', fake_get_deposition)
+    return calls
