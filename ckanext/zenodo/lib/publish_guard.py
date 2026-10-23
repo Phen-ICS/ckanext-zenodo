@@ -15,6 +15,7 @@ error to catch and ignore, not a correction to make) - so no Redis
 TTL-marker trick is needed, just the straightforward check below.
 """
 
+import json
 import logging
 from urllib.parse import quote_plus
 
@@ -116,6 +117,26 @@ def _extract_datacite_metadata(pkg_dict):
         return {}
 
 
+def _subject_lines(pkg_dict):
+    """The dataset's subjects as [(label, values)], labelled by
+    ckanext-fair3r from the FDF schema's display_mapping. None without
+    fair3r (or with one too old to have summary.py): the mapper then
+    labels subjects by their scheme name."""
+    fdf_output_json = _fdf_output_json(pkg_dict)
+    if not fdf_output_json:
+        return None
+    try:
+        from ckanext.fair3r.lib.fdf.schema import load_fdf_schema
+        from ckanext.fair3r.lib.fdf.summary import summary_lines
+    except ImportError:
+        return None
+    try:
+        fdf_data = json.loads(fdf_output_json)
+    except ValueError:
+        return None
+    return summary_lines(load_fdf_schema('en'), fdf_data, subjects_only=True)
+
+
 def _submitter_display_name(pkg_dict):
     """The real person who created the dataset (not the shared Zenodo
     account that actually performs the deposit) - see the implementation
@@ -196,6 +217,7 @@ def _publish_deposition(package_id):
         # now in the normal case.
         source_doi=source_doi,
         source_doi_url=_doi_resolver_url(source_doi) if source_doi else None,
+        subject_lines=_subject_lines(pkg_dict),
     )
 
     sandbox = deposition.is_sandbox

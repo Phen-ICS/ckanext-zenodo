@@ -53,29 +53,18 @@ paragraphs, bold, lists, links and emoji (as icons), in this order:
    mode, `doi.org` in production.
 3. The abstract (DataCite description of type `Abstract`).
 4. **🧑‍🔬 Creators:** the creators' names.
-5. The FDF subjects as a "Label: value" list. Known annotation schemes
-   get a readable label (table below); any other scheme is turned into a
-   label from its name (`treatmentProtocol` -> "Treatment Protocol").
-   Duplicates (same label and value, case-insensitive) appear once - a
-   gene cross-referenced in five databases gives one "Gene: Apoe" line.
+5. The FDF subjects as a "Label: value" list, labelled the way the FDF
+   schema displays them: ckanext-fair3r's `summary_lines` reads each
+   section's `display_mapping` (`labels[scheme]`, else the section title -
+   e.g. "Species: Mus musculus", "Gene: Apoe", "Disease Model: Rett
+   syndrome"). No scheme list in this plugin: a new ontology or form
+   section needs a schema change only. A gene's cross-references
+   (`crossRefOf`) are left out, they repeat it. Without ckanext-fair3r,
+   each subject goes under its scheme name made readable
+   (`treatmentProtocol` -> "Treatment Protocol"). Duplicates (same label
+   and value, case-insensitive) appear once.
 6. **🏷️ Keywords:** the CKAN tags.
 7. **📅 Publication year.**
-
-| Subject scheme | Label |
-|---|---|
-| `NCBITaxon` | Organism |
-| `PATO` | Sex |
-| `speciesBackground`, `Strain` | Strain |
-| `geneSymbol`, `geneName`, `geneAccessionId`, `NCBI Gene`, `MGI Gene`, `Ensembl Gene` | Gene |
-| `geneChromosomeLocation` | Chromosome location |
-| `geneMutationType` | Mutation type |
-| `alleleSymbol`, `alleleAccessionId`, `MGI Allele`, `Alliance Allele` | Allele |
-| `ChEBI`, `treatmentName` | Treatment |
-| `treatmentProtocol` | Treatment protocol |
-| `treatmentDesign` | Treatment design |
-| `DOID` | Disease model |
-| `UBERON` | Tissue / organ |
-| `EFO` | Diet |
 
 ## When it's sent
 

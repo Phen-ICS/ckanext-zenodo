@@ -167,6 +167,68 @@ def test_extract_datacite_metadata_uses_real_fair3r_converter():
     ]
 
 
+def test_subject_lines_labelled_from_the_fdf_schema(monkeypatch):
+    # The integration server runs this with ckanext-fair3r from PyPI, which
+    # may predate summary.py - the fallback test below covers that case.
+    pytest.importorskip('ckanext.fair3r.lib.fdf.summary')
+    import json
+
+    from ckanext.fair3r.lib.fdf import schema as fdf_schema
+
+    schema = {
+        'sections': [
+            {
+                'title': 'Involved Genes',
+                'display_mapping': {
+                    'source': ['subjects'],
+                    'filter': {'subjectScheme': ['geneAccessionId']},
+                    'labels': {'geneAccessionId': 'Gene'},
+                },
+            }
+        ]
+    }
+    monkeypatch.setattr(fdf_schema, 'load_fdf_schema', lambda locale=None: schema)
+    fdf_output_json = json.dumps(
+        {
+            'publicationYear': 2026,
+            'subjects': [
+                {'subject': 'Apoe', 'subjectScheme': 'geneAccessionId'},
+                {
+                    'subject': 'Apoe',
+                    'subjectScheme': 'MGI Gene',
+                    'crossRefOf': 'geneAccessionId',
+                },
+            ],
+        }
+    )
+
+    lines = publish_guard._subject_lines(
+        {'extras': [{'key': 'fdf_output_json', 'value': fdf_output_json}]}
+    )
+
+    assert lines == [('Gene', ['Apoe'])]
+
+
+def test_subject_lines_without_fair3r_summary_is_none(monkeypatch):
+    # An older ckanext-fair3r (no summary.py): the mapper falls back to
+    # scheme names instead of failing the publish.
+    import sys
+
+    monkeypatch.setitem(sys.modules, 'ckanext.fair3r.lib.fdf.summary', None)
+    fdf_output_json = '{"subjects": [{"subject": "Apoe"}]}'
+
+    assert (
+        publish_guard._subject_lines(
+            {'extras': [{'key': 'fdf_output_json', 'value': fdf_output_json}]}
+        )
+        is None
+    )
+
+
+def test_subject_lines_without_fdf_extra_is_none():
+    assert publish_guard._subject_lines({'extras': []}) is None
+
+
 def test_submitter_display_name_from_creator_user():
     user = factories.User(fullname='Jane Researcher')
 
