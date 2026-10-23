@@ -73,7 +73,7 @@ paragraphs, bold, lists, links and emoji (as icons), in this order:
 | `ChEBI`, `treatmentName` | Treatment |
 | `treatmentProtocol` | Treatment protocol |
 | `treatmentDesign` | Treatment design |
-| `DOID` | Disease model |
+| `MONDO`, `DOID` | Disease model |
 | `UBERON` | Tissue / organ |
 | `EFO` | Diet |
 

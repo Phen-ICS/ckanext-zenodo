@@ -80,6 +80,7 @@ def test_subject_label_known_scheme():
     assert mm._subject_label('alleleSymbol') == 'Allele'
     assert mm._subject_label('geneChromosomeLocation') == 'Chromosome location'
     assert mm._subject_label('geneMutationType') == 'Mutation type'
+    assert mm._subject_label('MONDO') == 'Disease model'
     assert mm._subject_label('DOID') == 'Disease model'
     assert mm._subject_label('UBERON') == 'Tissue / organ'
     assert mm._subject_label('EFO') == 'Diet'

@@ -98,7 +98,7 @@ ZENODO_UPLOAD_TYPE_FALLBACK = 'other'
 # geneChromosomeLocation, geneMutationType, alleleAccessionId/
 # alleleSymbol, MGI/Alliance Allele) or against datacite_converter.py's
 # own "FAIR3R form summary" builder, which documents in its own code
-# exactly what each of ChEBI/DOID/UBERON/EFO represents for this
+# exactly what each of ChEBI/MONDO/DOID/UBERON/EFO represents for this
 # pipeline (treatments, disease models, tissues/organs, diets).
 #
 # Several schemes share a label on purpose: a gene (or allele) cross-
@@ -136,6 +136,7 @@ SUBJECT_SCHEME_TO_LABEL = {
     'treatmentName': 'Treatment',
     'treatmentProtocol': 'Treatment protocol',
     'treatmentDesign': 'Treatment design',
+    'MONDO': 'Disease model',
     'DOID': 'Disease model',
     'UBERON': 'Tissue / organ',
     'EFO': 'Diet',
