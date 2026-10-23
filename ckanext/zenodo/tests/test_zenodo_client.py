@@ -387,3 +387,30 @@ def test_check_calls_hit_the_right_endpoints(monkeypatch):
         ('GET', f'{base}/communities/c-1/members', {'size': 100}),
     ]
     assert members == [{'role': 'owner'}]
+
+
+def test_retried_upload_sends_the_file_again_from_its_start(monkeypatch):
+    import io
+
+    sent = []
+
+    class Response:
+        def __init__(self, status):
+            self.status_code = status
+            self.content = b''
+            self.text = ''
+
+    statuses = iter([503, 200])
+
+    def fake_request(method, url, data=None, **kwargs):
+        sent.append(data.read())
+        return Response(next(statuses))
+
+    monkeypatch.setattr(zenodo_client.requests, 'request', fake_request)
+    monkeypatch.setattr(zenodo_client.time, 'sleep', lambda s: None)
+
+    zenodo_client.upload_file_to_bucket(
+        'https://sandbox.zenodo.org/bucket/1', 'a.bin', io.BytesIO(b'abc'), 'token'
+    )
+
+    assert sent == [b'abc', b'abc']

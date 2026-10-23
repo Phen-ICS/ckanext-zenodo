@@ -32,44 +32,77 @@ The browser decision is a convenience only: the server checks everything
 again. Without a Zenodo token configured, none of this applies: the form
 offers no Zenodo option and every file stays in CKAN.
 
-### Upload - `POST /zenodo/upload/<dataset>`
+### Upload - in chunks, then sent by a background job
 
-Checked in this order; the first failure answers with the status shown
-and nothing is sent to Zenodo:
+The web server runs one uWSGI process (1-2 GB VMs) and kills any request
+over 50 s, so a large file can't go through one request. The browser
+(`assets/js/zenodo-chunked-upload.js`, used by this plugin's form and by
+ckanext-fair3r's) sends it in chunks instead:
 
-| # | Check | Failure |
-|---|---|---|
-| 1 | Logged in; a Zenodo token is configured | 403 / 503 |
-| 2 | Dataset exists and the user may add a resource to it (`resource_create` permission) | 404 / 403 |
-| 3 | Hourly request count and byte budget of this user (`rate_limit.py`) | 429 |
-| 4 | Request has a size (`Content-Length`) | 400 |
-| 5 | The file would fit in the Zenodo record: file count and total size, read live from Zenodo (`record_limits.py`) | 409 (502 if Zenodo can't be reached) |
-| 6 | Disk space is reserved on the server for the whole request (`disk_guard.py`) - done before the body is read, since reading it writes it to a temporary file | 507 |
-| 7 | A file was sent, isn't empty, isn't over `max_file_size_bytes` | 400 |
-| 8 | Unless "Zenodo" was switched on: the file really is too big for CKAN or unreadable by the data viewer (otherwise: "use the normal upload") | 400 |
-| 9 | Its bytes fit in the user's hourly byte budget | 429 |
+1. **Start** - `POST /zenodo/uploads/<dataset>`, JSON `{filename, size,
+   mimetype, force_zenodo}`. Checked in this order; the first failure
+   answers with the status shown, nothing is stored:
 
-Then:
+   | # | Check | Failure |
+   |---|---|---|
+   | 1 | A Zenodo token is configured; logged in; the dataset exists and the user may add a resource to it (`resource_create`) | 503 / 403 / 404 |
+   | 2 | Hourly request count and byte budget of this user (`rate_limit.py`) | 429 |
+   | 3 | The file isn't empty, isn't over `max_file_size_bytes`, and - unless "Zenodo" was switched on - really is too big for CKAN or unreadable by the data viewer | 400 |
+   | 4 | It fits in the Zenodo record: file count and total size, read live from Zenodo (`record_limits.py`) | 409 (502 if Zenodo can't be reached) |
+   | 5 | Its size fits in the user's hourly byte budget | 429 |
+   | 6 | Disk space is reserved for the whole file (`disk_guard.py`), until it's on Zenodo or the upload is dropped | 507 |
 
-1. **Find the deposition.** The dataset's row is read; if there's none,
-   a new empty deposition is created on Zenodo and recorded.
-2. **Choose the bucket.** If the deposition is unpublished, its own
-   bucket. If it's already published, a **new version** is created on
-   Zenodo first and the file goes into the new draft's bucket - a file
-   written into a published record's bucket is accepted but never
-   appears on the record.
-3. **Stream the file** to `<bucket>/<filename>` (filename
-   percent-encoded). A file with the same name replaces the existing
-   one.
-4. **Record it**: for a new version, the row now points at the new
-   draft and `published` goes back to false - only after the upload
-   succeeded, so a failure leaves the published record untouched. The
-   filename is added to the list (once).
-5. If a new version was created, the publish is triggered right away
-   (the dataset is already public).
-6. The disk reservation is released, whatever happened.
+   A row is created in `fair_zenodo_upload` (status `receiving`).
+2. **Chunks** - `PUT /zenodo/uploads/<dataset>/<upload>/chunk?offset=N`,
+   16 MB each, raw body, written to `<ckan.storage_path>/zenodo_uploads/`.
+   Only the user who started it; a chunk must start at or before what
+   was received (416 otherwise). A chunk whose request fails (network,
+   server busy: no answer, 429, 5xx) is sent again by the browser after
+   2, 5, 10, 20 then 30 s; sending one again replaces it. Any other
+   refusal stops the upload, and the browser drops it (`DELETE`) to free
+   the disk space at once.
+3. **Finish** - `POST .../finish`: all bytes in (409 otherwise), the row
+   goes `queued` and a background job takes over. The browser is done:
+   the file is "received".
+4. **Send** (`chunked_upload.send_to_zenodo`, RQ, 6 h timeout):
+   - find or create the dataset's deposition;
+   - choose the bucket: its own while unpublished; if already published,
+     a **new version** first (a file written into a published record's
+     bucket is accepted but never appears on it);
+   - stream the file from disk to `<bucket>/<filename>` (percent-encoded;
+     a file with the same name replaces it);
+   - record it (new draft's id and bucket only once the file is in it,
+     filename added once), delete the local file, release the disk
+     space, delete the row;
+   - trigger the publish if the dataset is public (a new version, or a
+     first publish that waited for this file).
 
-The browser shows progress per file and the result of each.
+All chunk requests fit nginx's normal 20 MB body limit and default
+timeouts: `/zenodo/uploads/` needs no special route.
+
+### When the send fails
+
+The row goes `failed` with the reason; **the file is kept**, so nothing
+has to be uploaded again.
+
+- The dataset page shows it to its editors: "Sending to Zenodo failed:
+  <reason>", with **Retry** and **Remove**.
+- `ckan zenodo retry-pending` (cron, every 30 min) sends it again after
+  30 min, up to 3 attempts in all; after the last one the page says no
+  more automatic attempts are made, and the upload is removed a day
+  later unless retried.
+- A send still `sending` past the job's timeout (worker killed) is marked
+  failed ("interrupted") by the same command, then follows the same
+  rules.
+- An upload left `receiving` for 2 h (browser closed mid-way) is removed
+  by the same command.
+
+### Older single-request upload - `POST /zenodo/upload/<dataset>`
+
+Kept so a ckanext-fair3r older than the chunked upload still works: one
+multipart request, the same checks, streamed to Zenodo within the
+request (so limited to what fits in the web server's 50 s). Uses
+nginx's `/zenodo/upload/` route (large body, no buffering).
 
 ### Before the dataset is public
 

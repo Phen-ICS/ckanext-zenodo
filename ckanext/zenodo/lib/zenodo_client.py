@@ -9,8 +9,8 @@ access token (and, where it matters, whether to target the sandbox) as an
 explicit argument rather than reading CKAN config itself. The caller (the
 upload blueprint, the publish hook - both already need `ckan`) is
 responsible for reading `ckanext.zenodo.*` config and passing the right
-values in. This is what keeps this module importable and unit-testable
-with no CKAN installation at all, in the lightweight CI image.
+values in. This is what keeps this module unit-testable with no CKAN
+app, DB or config.
 
 Retry with exponential backoff on 429/5xx and one dedicated error class,
 same pattern as openalex_client.py/datacite_events_client.py.
@@ -55,7 +55,12 @@ def _request(method, url, access_token, *, timeout=REQUEST_TIMEOUT, **kwargs):
 
     backoff = INITIAL_BACKOFF_SECONDS
     last_error = None
+    data = kwargs.get('data')
     for attempt in range(1, MAX_RETRIES + 1):
+        if hasattr(data, 'seek'):
+            # A retried upload would otherwise send whatever the failed
+            # attempt left unread - nothing, for a fully read file.
+            data.seek(0)
         try:
             resp = requests.request(
                 method, url, headers=headers, timeout=timeout, **kwargs

@@ -369,7 +369,7 @@ def _create_zenodo_resources(
     job was retried after a crash right after this step, on a previous
     run, or this is a later republish - e.g. a file added to or removed
     from an already-published deposition, see zenodo_upload.py's
-    _bucket_for_upload and delete_zenodo_file.py), nothing new is
+    chunked_upload.bucket_for_upload and delete_zenodo_file.py), nothing new is
     created for it - matched by prefix, not exact equality, so this
     also recognizes resources created by an earlier version of this
     code that didn't yet have the per-file `?preview_file=` suffix. Its

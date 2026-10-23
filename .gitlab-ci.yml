@@ -1,8 +1,8 @@
-# Pipeline for ckanext-zenodo: lint, security, pure unit tests, package
-# build, and publication to the public PyPI on every merge to main (validation
-# and production install extensions straight from PyPI, so a merged change must
-# land there). The fair3r-docker-alt integration test job is added once the
-# plugin is deployed.
+# Pipeline for ckanext-zenodo: lint, security, package build, and publication
+# to the public PyPI on every merge to main (validation and production install
+# extensions straight from PyPI, so a merged change must land there). The tests
+# run on the integration server: each MR triggers fair3r-docker-alt, whose
+# test:integration:zenodo job runs the whole suite against that MR's build.
 
 stages:
   - pre-validate
@@ -58,16 +58,15 @@ security:bandit:
     - pip install 'bandit[toml]'
     - bandit -c pyproject.toml -r ckanext
 
-test:pure-unit:
+# Known vulnerabilities in the dependencies declared in pyproject.toml
+# (`pip-audit .`: those only, not the CI image's own pip/setuptools). Not
+# blocking: a new advisory in a dependency shouldn't stop unrelated MRs.
+security:pip-audit:
   stage: validate
-  variables:
-    # zenodo_client.py has no ckan import at all (see its own docstring),
-    # so the conftest.py guard requiring --ckan-ini=test.ini doesn't apply -
-    # same pattern as ckanext-citations' equivalent job.
-    ZENODO_ALLOW_NON_TEST_INI: "1"
+  allow_failure: true
   script:
-    - pip install pytest==7.4.4 requests
-    - pytest ckanext/zenodo/tests/test_zenodo_client.py ckanext/zenodo/tests/test_metadata_mapper.py
+    - pip install pip-audit
+    - pip-audit .
 
 build:package:
   stage: build

@@ -19,9 +19,12 @@ Zenodo record.
   "Zenodo" on. Everything else stays in CKAN. (Without
   `ckanext.xloader.formats`, no format counts as readable, so every file
   goes to Zenodo.)
-- **Upload**: the file is streamed through the CKAN server into a draft
-  Zenodo deposition kept for the dataset, by one shared Zenodo account.
-  Nothing is public yet.
+- **Upload**: the browser sends the file to the CKAN server in 16 MB
+  chunks (short requests, whatever the file's size), then the CKAN
+  worker sends it into a draft Zenodo deposition kept for the dataset, by
+  one shared Zenodo account. Nothing is public yet. A failed send keeps
+  the file, is retried automatically, and the dataset page tells its
+  editors (with Retry / Remove).
 - **Publish**: when the dataset is active and public, a background job
   writes the metadata, publishes the deposition (Zenodo mints a DOI),
   files it into the community and creates the CKAN resources.
@@ -95,11 +98,12 @@ operations, and the Zenodo API behaviour it relies on.
    */30 * * * * /path/to/venv/bin/ckan -c /path/to/ckan.ini zenodo retry-pending
    ```
 
-6. Let large uploads through: the reverse proxy's body size limit for
-   `/zenodo/upload/` must allow `ckanext.zenodo.max_file_size_bytes`
-   (10 GB by default), and the server needs that much free disk on top of
-   `ckanext.zenodo.disk_safety_margin_bytes` (5 GB) - each upload is
-   written to a temporary file before being sent on.
+6. Disk and proxy: each file is assembled under `ckan.storage_path`
+   before being sent on, so the server needs up to
+   `ckanext.zenodo.max_file_size_bytes` (10 GB by default) free on top of
+   `ckanext.zenodo.disk_safety_margin_bytes` (5 GB). Chunks are 16 MB, so
+   a reverse proxy's usual 20 MB body limit is enough (only the older
+   single-request route, `/zenodo/upload/`, needs a larger one).
 
 7. Restart CKAN and its worker, then check the setup against Zenodo:
 

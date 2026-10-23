@@ -90,44 +90,16 @@
       hint.textContent = routed ? box.dataset.msgRouted : box.dataset.msgStays;
     }
 
-    function errorMessage(xhr) {
-      try {
-        var payload = JSON.parse(xhr.responseText);
-        if (payload && payload.error && typeof payload.error.message === "string") {
-          return payload.error.message;
-        }
-      } catch (e) {
-        // not JSON: fall through to the generic message
-      }
-      return box.dataset.msgFailed;
-    }
-
+    // In chunks, see zenodo-chunked-upload.js (same bundle).
     function upload(file, forced, onDone) {
-      var data = new FormData();
-      data.append("upload", file, file.name);
-      if (forced) {
-        data.append("force_zenodo", "true");
-      }
-      var xhr = new XMLHttpRequest();
-      xhr.open("POST", box.dataset.uploadUrl, true);
-      xhr.withCredentials = true;
-      var token = csrfToken();
-      if (token) {
-        xhr.setRequestHeader("X-CSRFToken", token);
-      }
-      xhr.upload.addEventListener("progress", function (e) {
-        if (e.lengthComputable) {
-          progress.value = Math.round((e.loaded / e.total) * 100);
+      window.ZenodoChunkedUpload.upload(file, box.dataset.packageName, {
+        forced: forced,
+        onProgress: function (percent) {
+          progress.value = percent;
         }
+      }).then(function (result) {
+        onDone(result.ok ? null : result.errorMessage || box.dataset.msgFailed);
       });
-      xhr.onload = function () {
-        var ok = xhr.status >= 200 && xhr.status < 300;
-        onDone(ok ? null : errorMessage(xhr));
-      };
-      xhr.onerror = function () {
-        onDone(box.dataset.msgNetwork);
-      };
-      xhr.send(data);
     }
 
     // A Zenodo file creates no CKAN resource until the dataset is public, so
