@@ -58,6 +58,16 @@ security:bandit:
     - pip install 'bandit[toml]'
     - bandit -c pyproject.toml -r ckanext
 
+# Known vulnerabilities in the dependencies declared in pyproject.toml
+# (`pip-audit .`: those only, not the CI image's own pip/setuptools). Not
+# blocking: a new advisory in a dependency shouldn't stop unrelated MRs.
+security:pip-audit:
+  stage: validate
+  allow_failure: true
+  script:
+    - pip install pip-audit
+    - pip-audit .
+
 build:package:
   stage: build
   script:
