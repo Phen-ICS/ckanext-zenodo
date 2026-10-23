@@ -9,8 +9,8 @@ access token (and, where it matters, whether to target the sandbox) as an
 explicit argument rather than reading CKAN config itself. The caller (the
 upload blueprint, the publish hook - both already need `ckan`) is
 responsible for reading `ckanext.zenodo.*` config and passing the right
-values in. This is what keeps this module importable and unit-testable
-with no CKAN installation at all, in the lightweight CI image.
+values in. This is what keeps this module unit-testable with no CKAN
+app, DB or config.
 
 Retry with exponential backoff on 429/5xx and one dedicated error class,
 same pattern as openalex_client.py/datacite_events_client.py.

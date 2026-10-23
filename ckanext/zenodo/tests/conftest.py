@@ -4,6 +4,8 @@ import re
 
 import pytest
 
+from ckanext.zenodo.lib import disk_guard, rate_limit, zenodo_client
+
 
 def _resolve_ckan_ini(session):
     ckan_ini = getattr(session.config.option, 'ckan_ini', '') or ''
@@ -97,9 +99,7 @@ def zenodo_tables():
 
 
 # Fakes for the upload tests (test_blueprint_upload.py, test_chunked_upload.py):
-# no real network, no real Redis state leaking between tests. Imports inside
-# the fixtures: CI's pure job runs some test files without CKAN installed,
-# and disk_guard/rate_limit import it.
+# no real network, no real Redis state leaking between tests.
 
 
 class FakeRedis:
@@ -135,8 +135,6 @@ class FakeRedis:
 
 @pytest.fixture
 def fake_redis(monkeypatch):
-    from ckanext.zenodo.lib import disk_guard, rate_limit
-
     fake = FakeRedis()
     monkeypatch.setattr(rate_limit, 'connect_to_redis', lambda: fake)
     monkeypatch.setattr(disk_guard, 'connect_to_redis', lambda: fake)
@@ -148,8 +146,6 @@ def fake_disk_free(monkeypatch):
     """Deterministic, generous free space by default - independent of
     whatever's actually free on the machine running the tests. A test
     that cares about the disk-full path overrides this directly."""
-    from ckanext.zenodo.lib import disk_guard
-
     free = {'bytes': 20 * 1024**3}  # 20 GB
     monkeypatch.setattr(disk_guard, 'disk_free_bytes', lambda: free['bytes'])
     return free
@@ -157,8 +153,6 @@ def fake_disk_free(monkeypatch):
 
 @pytest.fixture
 def fake_zenodo(monkeypatch):
-    from ckanext.zenodo.lib import zenodo_client
-
     calls = {'created': [], 'uploaded': [], 'files': []}
 
     def fake_create_deposition(token, sandbox=False):
