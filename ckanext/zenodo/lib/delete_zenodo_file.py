@@ -53,7 +53,7 @@ from ckanext.zenodo.lib.publish_guard import (
     _zenodo_record_url,
     accept_pending_community_inclusion,
 )
-from ckanext.zenodo.model import ZenodoDepositionQuery
+from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
 
 log = logging.getLogger(__name__)
 
@@ -100,8 +100,40 @@ def delete_pending_file(package_id, filename):
     # Zenodo's side but crashed before this local update ran) - nothing
     # left to point at, no reason to keep listing it as pending.
     ZenodoDepositionQuery.remove_file(package_id, filename)
+    remove_empty_draft(package_id)
     repo.commit_and_remove()
     return True
+
+
+def remove_empty_draft(package_id):
+    """Deletes the dataset's Zenodo draft once nothing is left in it or on
+    its way to it - never published, no file, no upload pending - rather
+    than leave an empty draft on the shared account for good (the next
+    upload creates a new one). Best effort: on a Zenodo error the draft is
+    kept, and the next upload reuses it. The caller commits."""
+    deposition = ZenodoDepositionQuery.read_package(package_id)
+    if (
+        deposition is None
+        or deposition.concept_record_id
+        or ZenodoDepositionQuery.list_filenames(package_id)
+        or ZenodoUploadQuery.for_package(package_id)
+    ):
+        return
+    sandbox = deposition.is_sandbox
+    try:
+        zenodo_client.delete_deposition(
+            deposition.zenodo_deposition_id,
+            zenodo_config.access_token(sandbox),
+            sandbox=sandbox,
+        )
+    except zenodo_client.ZenodoError:
+        log.exception(
+            'Could not delete the empty Zenodo draft %s of package %s',
+            deposition.zenodo_deposition_id,
+            package_id,
+        )
+        return
+    ZenodoDepositionQuery.delete_package(package_id)
 
 
 _PENDING_KEY = 'zenodo_pending_file_deletions'

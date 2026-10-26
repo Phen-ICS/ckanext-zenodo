@@ -49,6 +49,8 @@
     var hint = document.getElementById("zenodo-hint");
     var progress = document.getElementById("zenodo-progress");
     var errorBox = document.getElementById("zenodo-error");
+    var cancelButton = document.getElementById("zenodo-cancel");
+    var controller = null;
 
     function csrfToken() {
       var field = document.querySelector('meta[name="csrf_field_name"]');
@@ -71,6 +73,7 @@
         button.disabled = busy;
       });
       progress.hidden = !busy;
+      cancelButton.hidden = !busy;
       if (busy) {
         progress.value = 0;
         errorBox.hidden = true;
@@ -92,8 +95,10 @@
 
     // In chunks, see zenodo-chunked-upload.js (same bundle).
     function upload(file, forced, onDone) {
+      controller = new AbortController();
       window.ZenodoChunkedUpload.upload(file, box.dataset.packageName, {
         forced: forced,
+        signal: controller.signal,
         onProgress: function (percent) {
           progress.value = percent;
         }
@@ -131,6 +136,11 @@
       }
     });
     forceBox.addEventListener("change", updateHint);
+    cancelButton.addEventListener("click", function () {
+      if (controller) {
+        controller.abort();
+      }
+    });
     updateHint();
 
     form.addEventListener("submit", function (event) {

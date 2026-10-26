@@ -20,6 +20,8 @@ dataset's visibility from before package_update, which no hook gets.
 - Purge, published: a published Zenodo record can't be deleted - the
   user is told it stays public. A pending new-version draft on top of
   it (a file being added) is discarded.
+- Purge, with uploads not yet on Zenodo (lib/chunked_upload.py): their
+  files and disk reservations are dropped too.
 - Public -> private: same reason, the already-archived files stay
   public on Zenodo - the user is told so. Nothing is done on Zenodo.
 
@@ -33,9 +35,9 @@ from ckan import model
 from ckan.plugins import toolkit
 from flask import has_request_context
 
-from ckanext.zenodo.lib import zenodo_client, zenodo_config
+from ckanext.zenodo.lib import chunked_upload, zenodo_client, zenodo_config
 from ckanext.zenodo.lib.publish_guard import _zenodo_record_url
-from ckanext.zenodo.model import ZenodoDepositionQuery
+from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
 
 log = logging.getLogger(__name__)
 
@@ -65,8 +67,15 @@ def dataset_purge(original_action, context, data_dict):
         else None
     )
 
+    uploads = (
+        [(u.id, u.size, u.status) for u in ZenodoUploadQuery.for_package(pkg.id)]
+        if pkg
+        else []
+    )
+
     result = original_action(context, data_dict)
 
+    chunked_upload.forget_purged(uploads)
     if snapshot is None:
         return result
     if not snapshot['published']:

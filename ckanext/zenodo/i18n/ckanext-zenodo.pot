@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: ckanext-zenodo 0.1.28\n"
+"Project-Id-Version: ckanext-zenodo 0.1.29\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-23 12:47+0000\n"
+"POT-Creation-Date: 2026-10-26 14:31+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,15 +17,19 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ckanext/zenodo/assets/js/zenodo-chunked-upload.js:110
+#: ckanext/zenodo/assets/js/zenodo-chunked-upload.js:128
 #: ckanext/zenodo/templates/package/snippets/resource_form.html:24
 msgid "Upload to Zenodo failed"
 msgstr ""
 
-#: ckanext/zenodo/assets/js/zenodo-chunked-upload.js:119
-#: ckanext/zenodo/assets/js/zenodo-chunked-upload.js:152
+#: ckanext/zenodo/assets/js/zenodo-chunked-upload.js:137
+#: ckanext/zenodo/assets/js/zenodo-chunked-upload.js:182
 #: ckanext/zenodo/templates/package/snippets/resource_form.html:25
 msgid "Network error"
+msgstr ""
+
+#: ckanext/zenodo/assets/js/zenodo-chunked-upload.js:154
+msgid "Upload cancelled"
 msgstr ""
 
 #: ckanext/zenodo/lib/auth.py:40
@@ -35,23 +39,23 @@ msgid ""
 "ask an administrator to resolve this dataset's Zenodo archive another way."
 msgstr ""
 
-#: ckanext/zenodo/lib/chunked_upload.py:54
+#: ckanext/zenodo/lib/chunked_upload.py:64
 msgid "Zenodo could not be reached or refused the file."
 msgstr ""
 
-#: ckanext/zenodo/lib/chunked_upload.py:55
+#: ckanext/zenodo/lib/chunked_upload.py:65
 msgid "The transfer to Zenodo was interrupted."
 msgstr ""
 
-#: ckanext/zenodo/lib/chunked_upload.py:56
+#: ckanext/zenodo/lib/chunked_upload.py:66
 msgid "Zenodo isn't set up on this site any more."
 msgstr ""
 
-#: ckanext/zenodo/lib/helpers.py:74
+#: ckanext/zenodo/lib/helpers.py:75
 msgid "Archived on Zenodo"
 msgstr ""
 
-#: ckanext/zenodo/lib/helpers.py:75
+#: ckanext/zenodo/lib/helpers.py:76
 msgid "Zenodo archive updated"
 msgstr ""
 
@@ -115,6 +119,10 @@ msgstr ""
 msgid "Store this file on Zenodo instead of this catalogue"
 msgstr ""
 
+#: ckanext/zenodo/templates/package/snippets/resource_form.html:35
+msgid "Cancel"
+msgstr ""
+
 #: ckanext/zenodo/templates/package/snippets/resources_list.html:56
 msgid "Upload not finished - it is removed after two hours without news."
 msgstr ""
@@ -134,50 +142,54 @@ msgid ""
 msgstr ""
 
 #: ckanext/zenodo/templates/package/snippets/resources_list.html:66
+msgid "Cancelled - it disappears in a moment."
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:68
 msgid "Received - being sent to Zenodo, reload this page in a moment."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:74
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:76
 msgid "Retry"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:79
 #: ckanext/zenodo/templates/package/snippets/resources_list.html:81
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:162
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:188
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:212
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:217
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:83
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:164
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:190
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:214
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:219
 msgid "Remove"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:108
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:110
 msgid "Could not do it - try again shortly."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:112
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:218
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:114
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:220
 msgid "Network error."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:122
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:124
 msgid ""
 "Uploaded to Zenodo - won't be archived with a public DOI until this dataset "
 "itself is made public."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:124
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:126
 msgid "Archiving on Zenodo keeps failing - please contact the site administrators."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:126
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:128
 msgid "Being archived on Zenodo - reload this page in a moment to see it."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:191
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:193
 msgid "Removing…"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:213
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:215
 msgid "Could not remove the file - try again shortly."
 msgstr ""
 

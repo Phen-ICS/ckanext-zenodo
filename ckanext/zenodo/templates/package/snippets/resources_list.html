@@ -62,6 +62,8 @@
               {% else %}
                 {{ _('No more automatic attempts: retry it, or remove it (it is removed after a day otherwise).') }}
               {% endif %}
+            {% elif upload.cancelling %}
+              {{ _('Cancelled - it disappears in a moment.') }}
             {% else %}
               {{ _('Received - being sent to Zenodo, reload this page in a moment.') }}
             {% endif %}
@@ -73,7 +75,7 @@
                       data-url="{{ h.url_for('zenodo_upload.chunked_retry', package_name=pkg.name, upload_id=upload.id) }}"
               >{{ _('Retry') }}</button>
             {% endif %}
-            {% if upload.status != 'sending' %}
+            {% if not upload.cancelling %}
               <button type="button" class="btn btn-danger btn-sm zenodo-upload-action"
                       data-method="DELETE"
                       data-confirm="{{ _('Remove') }} {{ upload.filename }}?"
