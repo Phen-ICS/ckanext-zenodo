@@ -6,8 +6,10 @@ job runs right in the test."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import requests
 from ckan.plugins import toolkit
 from ckan.tests import factories
+from ckan.tests.helpers import call_action
 
 from ckanext.zenodo.lib import chunked_upload, disk_guard, zenodo_client
 from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
@@ -163,6 +165,61 @@ def test_cancel_removes_the_file_and_the_reservation(setup, fake_redis, upload_d
     assert ZenodoUploadQuery.get(upload_id) is None
     assert not (upload_dir / upload_id).exists()
     assert fake_redis.store[disk_guard.RESERVED_KEY] == 0
+
+
+def test_cancel_while_sending_stops_the_job(
+    setup, jobs, fake_zenodo, fake_redis, monkeypatch, upload_dir
+):
+    client, dataset, headers = setup
+    upload_id = _start(client, dataset, headers, size=3).json['result']['upload_id']
+    _chunk(client, dataset, headers, upload_id, 0, b'abc')
+    _finish(client, dataset, headers, upload_id)
+    monkeypatch.setattr(chunked_upload, 'CHECK_EVERY', 1)
+    cancel = {}
+
+    def slow_upload(bucket_url, filename, file_obj, access_token):
+        file_obj.read(1)
+        # The editor clicks Remove while the job is sending.
+        cancel['response'] = client.delete(
+            f'/zenodo/uploads/{dataset["name"]}/{upload_id}', headers=headers
+        )
+        file_obj.read(1)
+        fake_zenodo['files'].append({'filename': filename})
+
+    monkeypatch.setattr(zenodo_client, 'upload_file_to_bucket', slow_upload)
+    _run_send_jobs(jobs)
+
+    assert cancel['response'].json['result'] == {'cancelling': True}
+    assert fake_zenodo['files'] == []
+    assert ZenodoUploadQuery.get(upload_id) is None
+    assert not (upload_dir / upload_id).exists()
+    assert fake_redis.store[disk_guard.RESERVED_KEY] == 0
+    assert chunked_upload.CANCEL_KEY.format(upload_id) not in fake_redis.store
+
+
+def test_purge_drops_the_files_and_reservations_of_its_uploads(
+    setup, fake_redis, upload_dir
+):
+    client, dataset, headers = setup
+    upload_id = _start(client, dataset, headers, size=3).json['result']['upload_id']
+    _chunk(client, dataset, headers, upload_id, 0, b'ab')
+
+    call_action('dataset_purge', {'ignore_auth': True}, id=dataset['id'])
+
+    assert ZenodoUploadQuery.get(upload_id) is None
+    assert not (upload_dir / upload_id).exists()
+    assert fake_redis.store[disk_guard.RESERVED_KEY] == 0
+
+
+def test_send_reader_has_the_size_requests_sends(tmp_path):
+    path = tmp_path / 'f.bin'
+    path.write_bytes(b'x' * 10)
+    with open(path, 'rb') as handle:
+        reader = chunked_upload._SendReader(handle, 'upload-id')
+        assert requests.utils.super_len(reader) == 10
+        reader.read(4)
+        reader.seek(0)
+        assert requests.utils.super_len(reader) == 10
 
 
 def test_housekeeping(setup, jobs):

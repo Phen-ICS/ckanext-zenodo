@@ -6,13 +6,15 @@
  *
  * A chunk whose request fails (network, server busy) is sent again, with
  * a growing pause; a refused one (permission, limits) stops the upload.
+ * Aborting options.signal (an AbortController's) stops it too, and drops
+ * what the server received.
  *
  * Shared by this plugin's own upload form (zenodo-upload.js) and
  * ckanext-fair3r's resource-upload.js:
  *
  *   window.ZenodoChunkedUpload.upload(file, packageName, {
- *     forced: true|false, onProgress: function (percent) {}
- *   }).then(function (result) { result.ok, result.errorMessage });
+ *     forced: true|false, onProgress: function (percent) {}, signal: signal
+ *   }).then(function (result) { result.ok, result.cancelled, result.errorMessage });
  */
 (function () {
   "use strict";
@@ -55,9 +57,18 @@
     return status === 0 || status === 429 || status >= 500;
   }
 
-  function putChunk(url, blob, onLoaded) {
+  function putChunk(url, blob, onLoaded, signal) {
     return new Promise(function (resolve) {
       var xhr = new XMLHttpRequest();
+      function abort() {
+        xhr.abort();
+      }
+      function done(result) {
+        if (signal) {
+          signal.removeEventListener("abort", abort);
+        }
+        resolve(result);
+      }
       xhr.open("PUT", url, true);
       xhr.withCredentials = true;
       var token = csrfToken();
@@ -77,11 +88,17 @@
         } catch (e) {
           payload = null;
         }
-        resolve({ status: xhr.status, payload: payload });
+        done({ status: xhr.status, payload: payload });
       };
       xhr.onerror = function () {
-        resolve({ status: 0, payload: null });
+        done({ status: 0, payload: null });
       };
+      xhr.onabort = function () {
+        done({ status: 0, payload: null });
+      };
+      if (signal) {
+        signal.addEventListener("abort", abort);
+      }
       xhr.send(blob);
     });
   }
@@ -106,6 +123,7 @@
   function upload(file, packageName, options) {
     options = options || {};
     var onProgress = typeof options.onProgress === "function" ? options.onProgress : function () {};
+    var signal = options.signal;
     var base = "/zenodo/uploads/" + encodeURIComponent(packageName);
     var failed = translate("Upload to Zenodo failed");
 
@@ -127,7 +145,16 @@
         return { ok: false, errorMessage: message };
       }
 
+      function cancelled() {
+        return signal && signal.aborted;
+      }
+
       function sendFrom(offset, attempt) {
+        if (cancelled()) {
+          var result = giveUp(translate("Upload cancelled"));
+          result.cancelled = true;
+          return result;
+        }
         if (offset >= file.size) {
           return postJson(uploadUrl + "/finish").then(function (finish) {
             if (finish.status === 200 && finish.payload && finish.payload.success) {
@@ -140,7 +167,10 @@
         var end = Math.min(offset + chunkSize, file.size);
         return putChunk(uploadUrl + "/chunk?offset=" + offset, file.slice(offset, end), function (loaded) {
           onProgress(Math.floor(((offset + loaded) / file.size) * 99));
-        }).then(function (result) {
+        }, signal).then(function (result) {
+          if (cancelled()) {
+            return sendFrom(offset, attempt);
+          }
           if (result.status === 200) {
             return sendFrom(end, 0);
           }

@@ -10,7 +10,7 @@ protection has to happen in CKAN, before anything reaches Zenodo.
 | Action | Required |
 |---|---|
 | Upload a file to Zenodo | Logged in, and CKAN's `resource_create` permission on the dataset - the same as adding any resource. Chunks, finish and status: only the user who started the upload |
-| Retry or remove a failed chunked upload | `package_update` on the dataset (removing: also the user who started it) |
+| Retry a failed chunked upload, or remove or cancel one | `package_update` on the dataset (removing or cancelling: also the user who started it) |
 | Remove a pending (unpublished) file | Logged in, `package_update` permission on the dataset |
 | Delete a published file (CKAN resource) | CKAN's `resource_delete` rule, except the last file of a published record (refused) |
 | Publish to Zenodo | Nobody directly: it follows from the dataset becoming active and public, which requires CKAN's own permission to change its visibility |

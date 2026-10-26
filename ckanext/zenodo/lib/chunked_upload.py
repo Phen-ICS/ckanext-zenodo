@@ -14,8 +14,13 @@ site while it tries. Here every request is short:
 
 A failed send keeps the file: it's retried by `ckan zenodo retry-pending`
 (cron) up to MAX_SEND_ATTEMPTS times, the dataset page tells its editors,
-and they can retry or cancel it themselves. Abandoned uploads are
-cleaned by the same command.
+and they can retry or cancel it themselves - even while it's being sent:
+the job stops at its next check. Abandoned uploads are cleaned by the
+same command.
+
+The file is kept out of the kernel's page cache (written and read once):
+on a 2 GB VM, a multi-GB file there pushed CKAN, Postgres and Solr into
+swap and slowed the whole site (measured on validation).
 """
 
 import logging
@@ -23,6 +28,7 @@ import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 
+from ckan.lib.redis import connect_to_redis
 from ckan.model import repo
 from ckan.plugins import toolkit
 
@@ -43,6 +49,10 @@ MAX_SEND_ATTEMPTS = 3
 RECEIVING_ABANDONED_AFTER = timedelta(hours=2)
 RETRY_FAILED_AFTER = timedelta(minutes=30)
 KEEP_FAILED_FOR = timedelta(hours=24)
+# How often the send job drops what it read from the page cache and looks
+# for a cancel.
+CHECK_EVERY = 64 * 1024 * 1024
+CANCEL_KEY = 'zenodo:upload:cancel:{}'
 
 
 def N_(message):
@@ -74,6 +84,10 @@ def file_path(upload):
     return os.path.join(upload_dir(), upload.id)
 
 
+def _drop_from_cache(fd):
+    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+
 def write_chunk(upload, offset, stream, length):
     """Writes `length` bytes from `stream` at `offset`, dropping anything
     after it (a chunk sent again after a lost answer replaces its first
@@ -90,7 +104,59 @@ def write_chunk(upload, offset, stream, length):
                 raise ValueError('Chunk shorter than announced')
             handle.write(block)
             remaining -= len(block)
+        handle.flush()
+        # Dirty pages can't be dropped: on disk first.
+        os.fdatasync(handle.fileno())
+        _drop_from_cache(handle.fileno())
     return offset + length
+
+
+class SendCancelled(Exception):
+    """Raised by _SendReader when the upload was cancelled mid-send."""
+
+
+def request_cancel(upload_id):
+    """Asks the job sending this upload to stop. Kept a day: a job that died
+    mid-send is only retried hours later, and must see it then too."""
+    connect_to_redis().set(
+        CANCEL_KEY.format(upload_id), 1, ex=int(KEEP_FAILED_FOR.total_seconds())
+    )
+
+
+def cancel_requested(upload_id):
+    return bool(connect_to_redis().exists(CANCEL_KEY.format(upload_id)))
+
+
+class _SendReader:
+    """The assembled file as requests reads it for the PUT, dropping what
+    was read from the page cache and checking for a cancel every
+    CHECK_EVERY bytes. requests sizes the body with __len__ and tell (no
+    fileno: requests would then read a `mode` this object doesn't have),
+    and zenodo_client rewinds it with seek before a retry."""
+
+    def __init__(self, handle, upload_id):
+        self._handle = handle
+        self._upload_id = upload_id
+        self._unchecked = 0
+
+    def __len__(self):
+        return os.fstat(self._handle.fileno()).st_size
+
+    def tell(self):
+        return self._handle.tell()
+
+    def seek(self, *args):
+        return self._handle.seek(*args)
+
+    def read(self, size=-1):
+        block = self._handle.read(size)
+        self._unchecked += len(block)
+        if self._unchecked >= CHECK_EVERY:
+            self._unchecked = 0
+            _drop_from_cache(self._handle.fileno())
+            if cancel_requested(self._upload_id):
+                raise SendCancelled()
+        return block
 
 
 def bucket_for_upload(deposition, token, sandbox):
@@ -108,14 +174,32 @@ def bucket_for_upload(deposition, token, sandbox):
     return new_draft['links']['bucket'], new_draft
 
 
-def discard(upload):
-    """Removes an upload for good: its file, its disk reservation, its row."""
+def _drop_local(upload_id, size):
     try:
-        os.remove(file_path(upload))
+        os.remove(os.path.join(upload_dir(), upload_id))
     except FileNotFoundError:
         pass
-    disk_guard.release(upload.size)
-    ZenodoUploadQuery.delete(upload)
+    disk_guard.release(size)
+    connect_to_redis().delete(CANCEL_KEY.format(upload_id))
+
+
+def discard(upload):
+    """Removes an upload for good: its row, then its file and disk
+    reservation - only by whoever removed the row, so they're never
+    released twice."""
+    if ZenodoUploadQuery.delete(upload):
+        _drop_local(upload.id, upload.size)
+
+
+def forget_purged(uploads):
+    """After dataset_purge, for the dataset's uploads read before it as
+    (id, size, status): their rows went with the package (ON DELETE
+    CASCADE), their files and disk reservations didn't. A job still
+    sending one is also told to stop."""
+    for upload_id, size, status in uploads:
+        _drop_local(upload_id, size)
+        if status == upload_states.SENDING:
+            request_cancel(upload_id)
 
 
 def enqueue_send(upload):
@@ -142,6 +226,11 @@ def send_to_zenodo(upload_id):
     for the dataset page and the retry rules (module docstring)."""
     upload = ZenodoUploadQuery.get(upload_id)
     if upload is None or upload.status != upload_states.QUEUED:
+        return
+    if cancel_requested(upload_id):
+        # Cancelled while a previous attempt was sending it.
+        discard(upload)
+        repo.commit()
         return
     ZenodoUploadQuery.update(
         upload,
@@ -182,8 +271,15 @@ def send_to_zenodo(upload_id):
         bucket_url, new_draft = bucket_for_upload(deposition, token, sandbox)
         with open(file_path(upload), 'rb') as handle:
             zenodo_client.upload_file_to_bucket(
-                bucket_url, upload.filename, handle, token
+                bucket_url, upload.filename, _SendReader(handle, upload.id), token
             )
+    except SendCancelled:
+        # An interrupted PUT leaves nothing in the bucket, not even over a
+        # file of the same name (checked on the sandbox).
+        log.info('Sending %s to Zenodo cancelled', upload.filename)
+        discard(upload)
+        repo.commit()
+        return
     except (zenodo_client.ZenodoError, OSError):
         log.exception(
             'Sending %s to Zenodo failed (package %s, attempt %s)',

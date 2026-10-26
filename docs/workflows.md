@@ -80,6 +80,23 @@ ckanext-fair3r's) sends it in chunks instead:
 All chunk requests fit nginx's normal 20 MB body limit and default
 timeouts: `/zenodo/uploads/` needs no special route.
 
+The file is kept out of the kernel's page cache, after each chunk is
+written and as the job reads it: on a 2 GB VM, a multi-GB file there
+pushed CKAN, Postgres and Solr into swap and slowed the whole site.
+
+### Cancelling
+
+- **While the browser sends the chunks**: the progress bar's **Cancel**
+  stops it and deletes what the server received (file and disk space).
+- **Afterwards**, on the dataset page: **Remove**, for its editors and the
+  user who started it. Waiting or failed: removed at once. Being sent to
+  Zenodo: the job checks every 64 MB, stops, and removes it; the page
+  says "Cancelled" meanwhile. An interrupted PUT leaves nothing in the
+  Zenodo bucket, not even over a file of the same name (checked on the
+  sandbox).
+- **Purge of the dataset**: its uploads' files and disk space are removed
+  too (their rows go with the dataset).
+
 ### When the send fails
 
 The row goes `failed` with the reason; **the file is kept**, so nothing
@@ -232,7 +249,7 @@ bulk actions (they go through `package_patch`):
 | Action | Never published | Published |
 |---|---|---|
 | Delete (user, or bulk Delete) | The Zenodo draft and its files are deleted right away, with the row - nothing public is lost, and the shared account's quota isn't kept busy waiting for the trash to be emptied. Restoring the dataset brings it back without those files. | Nothing on Zenodo; message: the files stay publicly archived on Zenodo (with link). |
-| Purge (sysadmin) | Same cleanup, for anything a delete didn't already remove. | Nothing deleted (a published record can't be); a pending new-version draft is discarded; message: the files stay public on Zenodo. |
+| Purge (sysadmin) | Same cleanup, for anything a delete didn't already remove; uploads not yet on Zenodo are dropped (file and disk space). | Nothing deleted (a published record can't be); a pending new-version draft is discarded; message: the files stay public on Zenodo. |
 | Public -> private | - | Nothing on Zenodo; message: the archived files stay public. |
 
 The delete confirmation page says beforehand which case applies. Messages

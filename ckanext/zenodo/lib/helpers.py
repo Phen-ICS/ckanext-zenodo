@@ -53,8 +53,9 @@ from ckan.plugins import toolkit
 from flask import g, has_app_context
 
 from ckanext.zenodo.lib import zenodo_config
-from ckanext.zenodo.lib.chunked_upload import MAX_SEND_ATTEMPTS
+from ckanext.zenodo.lib.chunked_upload import MAX_SEND_ATTEMPTS, cancel_requested
 from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
+from ckanext.zenodo.model import zenodo_upload as upload_states
 
 # Keyed by the short code ZenodoDepositionQuery.set_notice() stores (see
 # publish_guard.py/delete_zenodo_file.py's own call sites) - a plain string
@@ -212,7 +213,8 @@ def zenodo_standalone_upload_config():
 def zenodo_uploads_for_package(pkg_dict):
     """Chunked uploads not yet on Zenodo (lib/chunked_upload.py), for the
     dataset's editors: being received, waiting for or being sent to Zenodo,
-    or failed - with whether another automatic attempt is still coming."""
+    or failed - with whether another automatic attempt is still coming, and
+    whether a send was cancelled but hasn't stopped yet."""
     package_id = pkg_dict.get('id')
     if not package_id:
         return []
@@ -223,6 +225,8 @@ def zenodo_uploads_for_package(pkg_dict):
             'status': upload.status,
             'error': upload.error,
             'will_retry': (upload.send_attempts or 0) < MAX_SEND_ATTEMPTS,
+            'cancelling': upload.status == upload_states.SENDING
+            and cancel_requested(upload.id),
         }
         for upload in ZenodoUploadQuery.for_package(package_id)
     ]

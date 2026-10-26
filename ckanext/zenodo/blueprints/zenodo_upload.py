@@ -571,8 +571,8 @@ def chunked_retry(package_name, upload_id):
 @zenodo_upload.route('/zenodo/uploads/<package_name>/<upload_id>', methods=['DELETE'])
 def chunked_cancel(package_name, upload_id):
     """Drops an upload not yet on Zenodo (its file and disk reservation) -
-    by the user sending it, or any editor of the dataset. Not while the
-    job is sending it."""
+    by the user sending it, or any editor of the dataset. While the job is
+    sending it, the job drops it at its next check instead."""
     if current_user.is_anonymous:
         return _error('Login required', 403)
     pkg_dict, error = _package(package_name, 'resource_create')
@@ -586,7 +586,8 @@ def chunked_cancel(package_name, upload_id):
         if error:
             return error
     if upload.status == upload_states.SENDING:
-        return _error('Being sent to Zenodo right now - try again shortly', 409)
+        chunked_upload.request_cancel(upload.id)
+        return jsonify({'success': True, 'result': {'cancelling': True}})
     chunked_upload.discard(upload)
     repo.commit()
     return jsonify({'success': True})

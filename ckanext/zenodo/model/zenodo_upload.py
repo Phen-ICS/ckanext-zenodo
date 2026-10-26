@@ -102,5 +102,10 @@ class ZenodoUploadQuery:
 
     @classmethod
     def delete(cls, upload):
-        Session.delete(upload)
+        """Whether the row was still there: a purge (ON DELETE CASCADE) or
+        another process may have removed it first."""
+        deleted = (
+            Session.query(ZenodoUpload).filter(ZenodoUpload.id == upload.id).delete()
+        )
         Session.flush()
+        return deleted == 1

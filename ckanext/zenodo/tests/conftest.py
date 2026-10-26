@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from ckanext.zenodo.lib import disk_guard, rate_limit, zenodo_client
+from ckanext.zenodo.lib import chunked_upload, disk_guard, rate_limit, zenodo_client
 
 
 def _resolve_ckan_ini(session):
@@ -132,12 +132,22 @@ class FakeRedis:
         value = self.store.get(key)
         return str(value).encode() if value is not None else None
 
+    def set(self, key, value, ex=None):
+        self.store[key] = value
+
+    def exists(self, key):
+        return int(key in self.store)
+
+    def delete(self, key):
+        self.store.pop(key, None)
+
 
 @pytest.fixture
 def fake_redis(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr(rate_limit, 'connect_to_redis', lambda: fake)
     monkeypatch.setattr(disk_guard, 'connect_to_redis', lambda: fake)
+    monkeypatch.setattr(chunked_upload, 'connect_to_redis', lambda: fake)
     return fake
 
 
