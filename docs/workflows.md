@@ -97,6 +97,10 @@ pushed CKAN, Postgres and Solr into swap and slowed the whole site.
 - **Purge of the dataset**: its uploads' files and disk space are removed
   too (their rows go with the dataset).
 
+The send creates the dataset's Zenodo draft before the file goes in: a
+draft left empty by a cancelled or given-up upload (never published, no
+file, no other upload on its way) is deleted on Zenodo, with its row.
+
 ### When the send fails
 
 The row goes `failed` with the reason; **the file is kept**, so nothing
@@ -220,7 +224,11 @@ versions stay on Zenodo, frozen, under their own DOIs.
 ### Not yet published
 
 From the pending-files list (section 1), or nothing to do: the file only
-exists in the draft.
+exists in the draft. Deleting its last file deletes the whole draft and
+its row (unless another upload is on its way): an empty draft would
+otherwise stay on the shared account for good, for instance once the
+editor stores the file in CKAN instead. The next upload creates a new
+draft.
 
 ### Published - CKAN's own "Delete resource"
 

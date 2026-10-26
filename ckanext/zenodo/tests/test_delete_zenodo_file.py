@@ -7,7 +7,7 @@ import pytest
 from ckan.tests import factories
 
 from ckanext.zenodo.lib import delete_zenodo_file, publish_guard, zenodo_client
-from ckanext.zenodo.model import ZenodoDepositionQuery
+from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
 
 pytestmark = pytest.mark.usefixtures('clean_db', 'zenodo_tables')
 
@@ -83,12 +83,54 @@ def test_delete_pending_file_still_untracks_it_if_zenodo_already_lost_it(monkeyp
     monkeypatch.setattr(
         zenodo_client, 'delete_deposition_file', lambda *a, **k: calls.append(1)
     )
+    monkeypatch.setattr(zenodo_client, 'delete_deposition', lambda *a, **k: None)
 
     deleted = delete_zenodo_file.delete_pending_file(dataset['id'], 'delete-me.txt')
 
     assert deleted is True
     assert calls == [], 'no file id was found - nothing to call Zenodo delete with'
     assert ZenodoDepositionQuery.list_filenames(dataset['id']) == []
+
+
+@pytest.fixture
+def last_file(monkeypatch):
+    """A never-published draft holding one file, and the Zenodo calls."""
+    dataset = factories.Dataset()
+    ZenodoDepositionQuery.create(dataset['id'], 'dep-1', 'https://example.test/bucket')
+    ZenodoDepositionQuery.add_file(dataset['id'], 'only.txt')
+    monkeypatch.setattr(
+        zenodo_client,
+        'get_deposition',
+        lambda *a, **k: {'files': [{'id': 'file-1', 'filename': 'only.txt'}]},
+    )
+    monkeypatch.setattr(zenodo_client, 'delete_deposition_file', lambda *a, **k: None)
+    deleted = []
+    monkeypatch.setattr(
+        zenodo_client,
+        'delete_deposition',
+        lambda dep_id, *a, **k: deleted.append(dep_id),
+    )
+    return dataset, deleted
+
+
+def test_deleting_the_last_pending_file_deletes_the_empty_draft(last_file):
+    dataset, deleted = last_file
+
+    assert delete_zenodo_file.delete_pending_file(dataset['id'], 'only.txt') is True
+
+    assert deleted == ['dep-1']
+    assert ZenodoDepositionQuery.read_package(dataset['id']) is None
+
+
+def test_the_draft_is_kept_while_an_upload_is_on_its_way(last_file):
+    dataset, deleted = last_file
+    user = factories.User()
+    ZenodoUploadQuery.create(dataset['id'], user['id'], 'next.bin', 1, True)
+
+    delete_zenodo_file.delete_pending_file(dataset['id'], 'only.txt')
+
+    assert deleted == []
+    assert ZenodoDepositionQuery.read_package(dataset['id']) is not None
 
 
 # ----- maybe_delete_published_file / _delete_published_file (after publication) -----

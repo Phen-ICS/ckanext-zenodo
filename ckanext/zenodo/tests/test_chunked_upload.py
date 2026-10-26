@@ -191,6 +191,9 @@ def test_cancel_while_sending_stops_the_job(
 
     assert cancel['response'].json['result'] == {'cancelling': True}
     assert fake_zenodo['files'] == []
+    # The send had created the draft; left empty, it goes too.
+    assert fake_zenodo['deleted'] == fake_zenodo['created'] == ['dep-1']
+    assert ZenodoDepositionQuery.read_package(dataset['id']) is None
     assert ZenodoUploadQuery.get(upload_id) is None
     assert not (upload_dir / upload_id).exists()
     assert fake_redis.store[disk_guard.RESERVED_KEY] == 0

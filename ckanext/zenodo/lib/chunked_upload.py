@@ -33,6 +33,7 @@ from ckan.model import repo
 from ckan.plugins import toolkit
 
 from ckanext.zenodo.lib import disk_guard, zenodo_client, zenodo_config
+from ckanext.zenodo.lib.delete_zenodo_file import remove_empty_draft
 from ckanext.zenodo.lib.publish_guard import maybe_publish_pending_deposition
 from ckanext.zenodo.model import ZenodoDepositionQuery, ZenodoUploadQuery
 from ckanext.zenodo.model import zenodo_upload as upload_states
@@ -186,9 +187,12 @@ def _drop_local(upload_id, size):
 def discard(upload):
     """Removes an upload for good: its row, then its file and disk
     reservation - only by whoever removed the row, so they're never
-    released twice."""
+    released twice. The send creates the Zenodo draft before the file
+    goes in, so a draft left empty by a cancelled or failed upload is
+    deleted too."""
     if ZenodoUploadQuery.delete(upload):
         _drop_local(upload.id, upload.size)
+        remove_empty_draft(upload.package_id)
 
 
 def forget_purged(uploads):

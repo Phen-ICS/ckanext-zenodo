@@ -163,7 +163,7 @@ def fake_disk_free(monkeypatch):
 
 @pytest.fixture
 def fake_zenodo(monkeypatch):
-    calls = {'created': [], 'uploaded': [], 'files': []}
+    calls = {'created': [], 'uploaded': [], 'files': [], 'deleted': []}
 
     def fake_create_deposition(token, sandbox=False):
         deposition_id = f'dep-{len(calls["created"]) + 1}'
@@ -186,4 +186,9 @@ def fake_zenodo(monkeypatch):
         zenodo_client, 'upload_file_to_bucket', fake_upload_file_to_bucket
     )
     monkeypatch.setattr(zenodo_client, 'get_deposition', fake_get_deposition)
+    monkeypatch.setattr(
+        zenodo_client,
+        'delete_deposition',
+        lambda deposition_id, *a, **k: calls['deleted'].append(deposition_id),
+    )
     return calls
