@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: ckanext-zenodo 0.1.29\n"
+"Project-Id-Version: ckanext-zenodo 0.1.30\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-26 14:31+0000\n"
+"POT-Creation-Date: 2026-10-27 09:46+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -39,15 +39,15 @@ msgid ""
 "ask an administrator to resolve this dataset's Zenodo archive another way."
 msgstr ""
 
-#: ckanext/zenodo/lib/chunked_upload.py:64
+#: ckanext/zenodo/lib/chunked_upload.py:65
 msgid "Zenodo could not be reached or refused the file."
 msgstr ""
 
-#: ckanext/zenodo/lib/chunked_upload.py:65
+#: ckanext/zenodo/lib/chunked_upload.py:66
 msgid "The transfer to Zenodo was interrupted."
 msgstr ""
 
-#: ckanext/zenodo/lib/chunked_upload.py:66
+#: ckanext/zenodo/lib/chunked_upload.py:67
 msgid "Zenodo isn't set up on this site any more."
 msgstr ""
 
@@ -59,7 +59,7 @@ msgstr ""
 msgid "Zenodo archive updated"
 msgstr ""
 
-#: ckanext/zenodo/lib/lifecycle_guard.py:85
+#: ckanext/zenodo/lib/lifecycle_guard.py:94
 #, python-brace-format
 msgid ""
 "\"{title}\" was purged, but its files stay publicly archived on Zenodo: "
@@ -67,14 +67,14 @@ msgid ""
 "support can remove it."
 msgstr ""
 
-#: ckanext/zenodo/lib/lifecycle_guard.py:129
+#: ckanext/zenodo/lib/lifecycle_guard.py:138
 #, python-brace-format
 msgid ""
 "The files of \"{title}\" stored on Zenodo (not yet published) were deleted "
 "too."
 msgstr ""
 
-#: ckanext/zenodo/lib/lifecycle_guard.py:136
+#: ckanext/zenodo/lib/lifecycle_guard.py:145
 #, python-brace-format
 msgid ""
 "\"{title}\" was deleted, but its files stay publicly archived on Zenodo: "
@@ -82,7 +82,7 @@ msgid ""
 "support can remove it."
 msgstr ""
 
-#: ckanext/zenodo/lib/lifecycle_guard.py:174
+#: ckanext/zenodo/lib/lifecycle_guard.py:183
 #, python-brace-format
 msgid ""
 "\"{title}\" is now private, but its files already archived on Zenodo stay "
@@ -123,73 +123,77 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:56
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:39
+msgid "Close"
+msgstr ""
+
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:57
 msgid "Upload not finished - it is removed after two hours without news."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:58
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:59
 msgid "Sending to Zenodo failed:"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:61
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:62
 msgid "Another attempt is made automatically within the next hour."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:63
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:64
 msgid ""
 "No more automatic attempts: retry it, or remove it (it is removed after a day"
 " otherwise)."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:66
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:67
 msgid "Cancelled - it disappears in a moment."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:68
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:69
 msgid "Received - being sent to Zenodo, reload this page in a moment."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:76
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:77
 msgid "Retry"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:81
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:83
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:164
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:190
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:214
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:219
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:82
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:84
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:165
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:191
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:215
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:220
 msgid "Remove"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:110
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:111
 msgid "Could not do it - try again shortly."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:114
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:220
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:115
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:221
 msgid "Network error."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:124
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:125
 msgid ""
 "Uploaded to Zenodo - won't be archived with a public DOI until this dataset "
 "itself is made public."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:126
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:127
 msgid "Archiving on Zenodo keeps failing - please contact the site administrators."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:128
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:129
 msgid "Being archived on Zenodo - reload this page in a moment to see it."
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:193
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:194
 msgid "Removing…"
 msgstr ""
 
-#: ckanext/zenodo/templates/package/snippets/resources_list.html:215
+#: ckanext/zenodo/templates/package/snippets/resources_list.html:216
 msgid "Could not remove the file - try again shortly."
 msgstr ""
 
