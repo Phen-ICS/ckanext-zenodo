@@ -36,6 +36,7 @@
        look like a second, different kind of message. #}
     <div class="alert alert-dismissible fade show alert-success">
       {{ zenodo_notice.message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ _('Close') }}"></button>
     </div>
   {% endif %}
   {# Files uploaded in chunks and not yet on Zenodo (lib/chunked_upload.py):
